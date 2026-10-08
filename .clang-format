@@ -1,0 +1,16 @@
+---
+Language: Cpp
+BasedOnStyle: Microsoft
+
+# Overrides of the Microsoft preset.
+UseTab: AlignWithSpaces
+AccessModifierOffset: -4
+PointerAlignment: Left
+ReferenceAlignment: Left
+BreakTemplateDeclarations: Yes
+LineEnding: CRLF
+
+# Windows headers depend on include order (windows.h before winhttp.h, etc.),
+# so do not let clang-format reorder includes.
+SortIncludes: Never
+...

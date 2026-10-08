@@ -1,0 +1,10 @@
+# build folders
+cmake-build-*/
+build*/
+
+# IDE generated files
+.idea/
+.vscode/
+
+# python env
+.venv

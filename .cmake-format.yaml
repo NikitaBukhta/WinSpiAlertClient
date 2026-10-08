@@ -1,0 +1,14 @@
+# Config for cmake-format (pip install cmakelang)
+# Usage: cmake-format -i CMakeLists.txt
+format:
+  line_width: 120
+  tab_size: 4
+  use_tabchars: true
+  max_subgroups_hwrap: 3
+  max_pargs_hwrap: 8
+  dangle_parens: true
+  command_case: unchanged
+  keyword_case: upper
+  line_ending: windows
+markup:
+  enable_markup: false
