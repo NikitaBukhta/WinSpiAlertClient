@@ -17,6 +17,8 @@
 #define PNG_IMAGE "\x89PNG\r\n\x1a\nimage-bytes"
 #define SECRET_KEY "secret-key-1"
 #define EVENTS_LIMIT 20
+// a loopback address that is not in the mock certificate (it covers localhost and 127.0.0.1 only)
+#define HOST_NOT_IN_CERTIFICATE "127.0.0.2"
 
 using integration::MockServerEnvironment;
 using integration::MockServerTest;
@@ -147,7 +149,9 @@ TEST_F(ClientCliIntegrationTests, StatusFailsWhenServerIsDown)
 
 	EXPECT_EQ(output.exit_code, 1u);
 	EXPECT_TRUE(output.out.empty()) << output.out;
-	EXPECT_TRUE(output.err.starts_with("Server status is unknown: network error: ")) << output.err;
+	EXPECT_TRUE(output.err.starts_with("Network error, retrying in 1 s\nNetwork error, retrying in 2 s\n"))
+	    << output.err;
+	EXPECT_TRUE(output.err.contains("Server status is unknown: network error: ")) << output.err;
 	EXPECT_TRUE(output.err.contains("(error 12029)")) << output.err;
 }
 
@@ -163,6 +167,47 @@ TEST_F(ClientCliIntegrationTests, SendUploadsImage)
 	ASSERT_EQ(events.items.size(), 1u);
 	EXPECT_EQ(events.items[0].file_name, "capture_0001.png");
 	EXPECT_TRUE(events.items[0].image_uploaded);
+}
+
+TEST_F(ClientCliIntegrationTests, SendTellsTheUserItWaitsForRateLimit)
+{
+	add_fault(R"({"fault":"status","status":429,"retry_after":1,"method":"POST","path":"/api/v1/events"})");
+	const TempFile image("capture_0001.png", PNG_IMAGE);
+
+	const ClientOutput output = run_with_config({L"send", image.path().wstring()});
+
+	EXPECT_EQ(output.exit_code, 0u) << output.err;
+	EXPECT_EQ(output.err, "Rate limited, retrying in 1 s\n");
+	EXPECT_TRUE(output.out.starts_with("Sent ")) << output.out;
+	EXPECT_EQ(list_events().total, 1);
+}
+
+TEST_F(ClientCliIntegrationTests, SendDoesNotWaitRetryAfterOverTheLimit)
+{
+	add_fault(R"({"fault":"status","status":429,"retry_after":3600,"method":"POST","path":"/api/v1/events"})");
+	const TempFile image("capture_0001.png", PNG_IMAGE);
+
+	const ClientOutput output = run_with_config({L"send", image.path().wstring()});
+
+	EXPECT_EQ(output.exit_code, 1u);
+	EXPECT_FALSE(output.err.contains("retrying")) << output.err;
+	EXPECT_TRUE(output.err.contains("(server asks to wait 3600 s, more than 60 s)")) << output.err;
+	EXPECT_TRUE(list_events().items.empty());
+}
+
+TEST_F(ClientCliIntegrationTests, RejectedCertificateIsNotRetried)
+{
+	const unsigned short port = test_helpers::MockServerProcess::find_free_port(HOST_NOT_IN_CERTIFICATE);
+	const test_helpers::MockServerProcess mock(HOST_NOT_IN_CERTIFICATE, port);
+	ASSERT_TRUE(mock.is_listening());
+	const std::string url = std::format("https://{}:{}{}", HOST_NOT_IN_CERTIFICATE, port, MOCK_API_BASE_PATH);
+	const TempFile config("config.json", config_json(url, MOCK_API_KEY));
+
+	const ClientOutput output = run({L"status", L"--config", config.path().wstring()});
+
+	EXPECT_EQ(output.exit_code, 1u);
+	EXPECT_TRUE(output.err.starts_with("Server status is unknown: network error: ")) << output.err;
+	EXPECT_TRUE(output.err.contains("(error 12175)")) << output.err;
 }
 
 TEST_F(ClientCliIntegrationTests, SendMissingImageFails)

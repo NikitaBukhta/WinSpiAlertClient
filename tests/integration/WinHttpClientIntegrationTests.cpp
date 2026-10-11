@@ -145,6 +145,16 @@ TEST_F(WinHttpClientIntegrationTests, ParsesRetryAfterHeader)
 	EXPECT_EQ(*response.retry_after, std::chrono::seconds{7});
 }
 
+TEST_F(WinHttpClientIntegrationTests, RetryAfterAsHttpDateIsIgnored)
+{
+	add_fault(R"({"fault":"status","status":429,"retry_after":"Wed, 21 Oct 2026 07:28:00 GMT"})");
+
+	const auto response = _client.send_request(STATUS_PATH, "GET", {}, API_KEY_HEADER);
+
+	EXPECT_EQ(response.status_code, 429u);
+	EXPECT_FALSE(response.retry_after.has_value()) << response.retry_after->count();
+}
+
 TEST_F(WinHttpClientIntegrationTests, NonJsonBodyIsReturnedAsIs)
 {
 	add_fault(R"({"fault":"html"})");
@@ -204,4 +214,5 @@ TEST(WinHttpClientTlsTests, HostNotInCertificateIsRejected)
 
 	EXPECT_FALSE(response.has_response());
 	EXPECT_EQ(response.error_code, static_cast<uint32_t>(ERROR_WINHTTP_SECURE_FAILURE));
+	EXPECT_EQ(response.failure, net::FailureEnum::PERMANENT_FAILURE) << "a resend gets the same certificate";
 }

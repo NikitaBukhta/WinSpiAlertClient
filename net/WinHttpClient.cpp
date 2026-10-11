@@ -165,7 +165,31 @@ HttpResponse WinHttpClient::make_error(const DWORD error_code)
 	HttpResponse response;
 	response.error_code = error_code;
 	response.message = std::string(text.data(), length) + "(error " + std::to_string(error_code) + ")";
+	response.failure = classify_error(error_code);
 	return response;
+}
+
+FailureEnum WinHttpClient::classify_error(const DWORD error_code)
+{
+	// NOTE: an unknown code is transient. DNS failure (12007) and unreachable revocation server (12057) are
+	// transient too: both happen while the network reconnects
+	switch (error_code)
+	{
+	case ERROR_WINHTTP_INVALID_URL:
+	case ERROR_WINHTTP_UNRECOGNIZED_SCHEME:
+	case ERROR_WINHTTP_SECURE_FAILURE:
+	case ERROR_WINHTTP_SECURE_CHANNEL_ERROR:
+	case ERROR_WINHTTP_SECURE_CERT_DATE_INVALID:
+	case ERROR_WINHTTP_SECURE_CERT_CN_INVALID:
+	case ERROR_WINHTTP_SECURE_INVALID_CA:
+	case ERROR_WINHTTP_SECURE_INVALID_CERT:
+	case ERROR_WINHTTP_SECURE_CERT_REVOKED:
+	case ERROR_WINHTTP_SECURE_CERT_WRONG_USAGE:
+	case ERROR_WINHTTP_CLIENT_AUTH_CERT_NEEDED:
+		return FailureEnum::PERMANENT_FAILURE;
+	default:
+		return FailureEnum::TRANSIENT_FAILURE;
+	}
 }
 
 std::optional<DWORD> WinHttpClient::query_number_header(const HINTERNET request, const DWORD header,

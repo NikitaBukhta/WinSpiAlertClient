@@ -9,11 +9,12 @@
 namespace api
 {
 
-ApiError ApiError::network(const uint32_t network_code, std::string message)
+ApiError ApiError::network(const uint32_t network_code, std::string message, const net::FailureEnum network_failure)
 {
 	ApiError error;
 	error.source = SourceEnum::NETWORK_SOURCE;
 	error.network_code = network_code;
+	error.network_failure = network_failure;
 	error.message = std::move(message);
 	return error;
 }
@@ -48,6 +49,11 @@ std::string ApiError::describe() const
 		break;
 	}
 	return message;
+}
+
+bool ApiError::is_transient_network_error() const
+{
+	return network_failure == net::FailureEnum::TRANSIENT_FAILURE;
 }
 
 std::string ApiError::describe_server_error() const

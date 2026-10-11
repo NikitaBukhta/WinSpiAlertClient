@@ -11,6 +11,13 @@
 namespace net
 {
 
+enum class FailureEnum : uint8_t
+{
+	NO_FAILURE,
+	TRANSIENT_FAILURE, // NOTE: a resend may succeed, e.g. the server is restarting
+	PERMANENT_FAILURE  // NOTE: a resend fails the same way, e.g. the certificate is rejected
+};
+
 struct HttpResponse
 {
 	uint16_t status_code{};
@@ -18,10 +25,11 @@ struct HttpResponse
 	std::optional<std::chrono::seconds> retry_after;
 	uint32_t error_code{};
 	std::string message; // NOTE: the reason phrase with a response, the WinHTTP error text without one
+	FailureEnum failure{};
 
 	[[nodiscard]] bool has_response() const noexcept
 	{
-		return error_code == 0;
+		return failure == FailureEnum::NO_FAILURE;
 	}
 };
 

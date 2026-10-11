@@ -83,7 +83,7 @@ ApiResponse<DtoType> SpialertApi::execute_request(const std::string& method, con
 	ApiResponse<DtoType> result{};
 	if (!response.has_response())
 	{
-		result.error = ApiError::network(response.error_code, std::move(response.message));
+		result.error = ApiError::network(response.error_code, std::move(response.message), response.failure);
 		return result;
 	}
 

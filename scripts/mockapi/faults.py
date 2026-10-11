@@ -21,7 +21,7 @@ OPTIONAL_FIELDS = {
     "path": str,
     "count": int,
     "status": int,
-    "retry_after": int,
+    "retry_after": (int, str),  # str: the HTTP-date form
     "code": str,
     "message": str,
     "seconds": (int, float),
@@ -39,7 +39,7 @@ class Fault:
     path: str = API_PREFIX + "/*"
     count: int = 1
     status: int | None = None
-    retry_after: int | None = None
+    retry_after: int | str | None = None
     code: str | None = None
     message: str | None = None
     seconds: float | None = None

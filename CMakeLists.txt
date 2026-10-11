@@ -64,6 +64,7 @@ add_library(
 	api/dto/EventRequestDto.h
 	api/dto/EventsListDto.h
 	api/dto/ServerErrorDto.h
+	app/IRetryWaiter.h
 	app/SpialertService.cpp
 	app/SpialertService.h
 	cli/ClientConfig.h
@@ -75,6 +76,8 @@ add_library(
 	cli/CommandLineParser.h
 	cli/CommandRunner.cpp
 	cli/CommandRunner.h
+	cli/ConsoleRetryWaiter.cpp
+	cli/ConsoleRetryWaiter.h
 )
 
 target_include_directories(client_core PUBLIC ${rapidjson_SOURCE_DIR}/include ${CMAKE_CURRENT_SOURCE_DIR})

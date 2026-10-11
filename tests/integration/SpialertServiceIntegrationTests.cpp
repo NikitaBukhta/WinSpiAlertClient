@@ -1,6 +1,7 @@
 #include <gtest/gtest.h>
 
 #include <algorithm>
+#include <chrono>
 #include <filesystem>
 #include <memory>
 #include <string>
@@ -12,6 +13,7 @@
 #include "api/SpialertApi.h"
 #include "api/dto/EventsListDto.h"
 #include "app/SpialertService.h"
+#include "cli/ConsoleRetryWaiter.h"
 #include "model/WicImageCompressorFactory.h"
 #include "net/WinHttpClient.h"
 #include "tests/helpers/ImageCodec.h"
@@ -37,7 +39,8 @@ protected:
 	{
 		MockServerTest::SetUp();
 		_service =
-			std::make_unique<app::SpialertService>(make_api(), std::make_unique<model::WicImageCompressorFactory>());
+			std::make_unique<app::SpialertService>(make_api(), std::make_unique<model::WicImageCompressorFactory>(),
+			                                       std::make_unique<cli::ConsoleRetryWaiter>());
 		_events_api = make_api();
 	}
 
@@ -132,6 +135,51 @@ TEST_F(SpialertServiceIntegrationTests, SendImgSurvivesLostResponseWithoutDuplic
 	ASSERT_TRUE(_service->send_img(image.path()));
 
 	EXPECT_EQ(list_events().total, 1) << "the resent event must be the same one, not a second event";
+}
+
+TEST_F(SpialertServiceIntegrationTests, SendImgWaitsRetryAfterThenCreatesOneEvent)
+{
+	add_fault(R"({"fault":"status","status":429,"retry_after":1,"method":"POST","path":"/api/v1/events"})");
+	const test_helpers::TempFile image("capture_0001.png", PNG_IMAGE);
+	const auto started = std::chrono::steady_clock::now();
+
+	ASSERT_TRUE(_service->send_img(image.path()));
+
+	EXPECT_GE(std::chrono::steady_clock::now() - started, std::chrono::seconds{1});
+	const auto events = list_events();
+	ASSERT_EQ(events.items.size(), 1u);
+	EXPECT_TRUE(events.items[0].image_uploaded);
+}
+
+TEST_F(SpialertServiceIntegrationTests, SendImgWaitsRetryAfterOfImageUpload)
+{
+	add_fault(R"({"fault":"status","status":429,"retry_after":1,"method":"POST","path":"/api/v1/events/*/image"})");
+	const test_helpers::TempFile image("capture_0001.png", PNG_IMAGE);
+
+	ASSERT_TRUE(_service->send_img(image.path()));
+
+	EXPECT_TRUE(list_events().items.at(0).image_uploaded);
+}
+
+TEST_F(SpialertServiceIntegrationTests, SendImgGivesUpAfterThreeRateLimits)
+{
+	add_fault(R"({"fault":"status","status":429,"retry_after":1,"count":3,"method":"POST","path":"/api/v1/events"})");
+	const test_helpers::TempFile image("capture_0001.png", PNG_IMAGE);
+	const auto started = std::chrono::steady_clock::now();
+
+	const auto sent = _service->send_img(image.path());
+
+	ASSERT_FALSE(sent);
+	EXPECT_TRUE(sent.error().starts_with("Event was not created: 429")) << sent.error();
+	EXPECT_GE(std::chrono::steady_clock::now() - started, std::chrono::seconds{2}) << "two waits of 1 s";
+	EXPECT_EQ(list_events().total, 0);
+}
+
+TEST_F(SpialertServiceIntegrationTests, StatusWaitsRetryAfter)
+{
+	add_fault(R"({"fault":"status","status":429,"retry_after":1,"method":"GET","path":"/api/v1/status"})");
+
+	EXPECT_EQ(_service->is_online(), app::SpialertService::ServerStateEnum::ONLINE_STATE);
 }
 
 TEST_F(SpialertServiceIntegrationTests, SendImgSurvivesLostUploadResponse)

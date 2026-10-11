@@ -79,6 +79,7 @@ net::HttpResponse network_error(uint32_t error_code)
 	net::HttpResponse response;
 	response.error_code = error_code;
 	response.message = "network error";
+	response.failure = net::FailureEnum::TRANSIENT_FAILURE;
 	return response;
 }
 

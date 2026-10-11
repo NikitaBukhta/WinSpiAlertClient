@@ -71,6 +71,18 @@ py scripts\project.py integration   :: client against the mock server, needs moc
 py scripts\project.py coverage      :: C++ line coverage of both, needs OpenCppCoverage
 ```
 
+## Rate limit and retries
+
+Every request to the server gets at most 3 attempts (`app/SpialertService::send_with_retry`):
+
+- 429 Too Many Requests: the client prints `Rate limited, retrying in N s` and waits `Retry-After` seconds, 5 s
+  without the header. A wait over 60 s (the server window) is not done, the client reports the error at once.
+  The server has not processed a 429 request, so the resend is safe; an event is resent with the same `event_uid`.
+- A network error: the client prints `Network error, retrying in N s` and waits 1 s, then 2 s. A lost response may
+  still have reached the server: the same `event_uid` returns the existing event, and 409 on the image upload means
+  the lost attempt has already uploaded it.
+- A rejected certificate or another TLS error is not retried: a resend fails the same way.
+
 ## Large images
 
 An image over 5 MB is shrunk before the upload. It keeps its format and name, only the quality and the resolution

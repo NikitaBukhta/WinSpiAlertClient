@@ -5,6 +5,7 @@
 
 #include "ClientConfigLoader.h"
 #include "CommandLineParser.h"
+#include "ConsoleRetryWaiter.h"
 #include "api/SpialertApi.h"
 #include "model/WicImageCompressorFactory.h"
 #include "net/WinHttpClient.h"
@@ -73,7 +74,7 @@ void CommandRunner::create_service(const ClientConfig& config)
 	auto http_client = std::make_unique<net::WinHttpClient>(config.host, USER_AGENT, config.port);
 	_service = std::make_unique<app::SpialertService>(
 		std::make_unique<api::SpialertApi>(std::move(http_client), config.base_path, config.api_key),
-		std::make_unique<model::WicImageCompressorFactory>());
+		std::make_unique<model::WicImageCompressorFactory>(), std::make_unique<ConsoleRetryWaiter>());
 }
 
 int CommandRunner::run_status() const

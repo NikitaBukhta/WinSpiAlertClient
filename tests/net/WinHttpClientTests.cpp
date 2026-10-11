@@ -39,6 +39,7 @@ TEST(WinHttpClientTests, ClosedPortReturnsCannotConnect)
 	EXPECT_EQ(response.error_code, ERROR_WINHTTP_CANNOT_CONNECT);
 	EXPECT_EQ(response.status_code, 0u);
 	EXPECT_NE(response.message.find("12029"), std::string::npos) << response.message;
+	EXPECT_EQ(response.failure, net::FailureEnum::TRANSIENT_FAILURE) << "the server may come up";
 }
 
 TEST(WinHttpClientTests, SeveralRequestsReuseTheOpenedConnection)

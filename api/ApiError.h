@@ -5,6 +5,7 @@
 #include <string>
 
 #include "dto/ServerErrorDto.h"
+#include "net/IHttpClient.h"
 
 namespace api
 {
@@ -21,14 +22,16 @@ struct ApiError
 	SourceEnum source{};
 	int status_code{};
 	uint32_t network_code{};
+	net::FailureEnum network_failure{};
 	std::string message; // NOTE: the reason phrase for SERVER_SOURCE, the error text otherwise
 	dto::ServerErrorDto server_error;
 
-	static ApiError network(uint32_t network_code, std::string message);
+	static ApiError network(uint32_t network_code, std::string message, net::FailureEnum network_failure);
 	static ApiError server(int status_code, std::string message, dto::ServerErrorDto server_error);
 	static ApiError local(std::string message);
 
 	[[nodiscard]] std::string describe() const;
+	[[nodiscard]] bool is_transient_network_error() const;
 
 private:
 	[[nodiscard]] std::string describe_server_error() const;

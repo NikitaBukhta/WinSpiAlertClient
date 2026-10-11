@@ -15,27 +15,36 @@
 #define MAX_EVENT_CODE 10
 // TODO: move to secret/config.json, pass to SpialertService
 #define MAX_SEND_ATTEMPTS 3
+// TODO: move to secret/config.json, pass to SpialertService
+#define NETWORK_BACKOFF_BASE std::chrono::seconds{1}
+// TODO: move to secret/config.json, pass to SpialertService
+#define DEFAULT_RETRY_AFTER std::chrono::seconds{5}
+// NOTE: the server limit is 60 requests per minute, a longer wait means something else is wrong
+// TODO: move to secret/config.json, pass to SpialertService
+#define MAX_RETRY_AFTER std::chrono::seconds{60}
 #define COMPRESSION_HEADROOM (20 * 1024 * 1024)
 #define MAX_IMAGE_READ_SIZE (MAX_IMAGE_SIZE + COMPRESSION_HEADROOM)
 #define HTTP_CONFLICT 409
+#define HTTP_TOO_MANY_REQUESTS 429
 
 namespace app
 {
 
 SpialertService::SpialertService(std::unique_ptr<api::ISpialertApi> spialert_api,
-                                 std::unique_ptr<model::IImageCompressorFactory> compressor_factory)
+                                 std::unique_ptr<model::IImageCompressorFactory> compressor_factory,
+                                 std::unique_ptr<IRetryWaiter> retry_waiter)
 	: _spialert_api(std::move(spialert_api)), _compressor_factory(std::move(compressor_factory)),
-	  _random(std::random_device{}())
+	  _retry_waiter(std::move(retry_waiter)), _random(std::random_device{}())
 {
 }
 
 std::expected<SpialertService::ServerStateEnum, std::string> SpialertService::is_online() const
 {
-	const auto response = _spialert_api->get_status();
-	if (!response.is_success())
-		return std::unexpected(std::format("Server status is unknown: {}", describe(response)));
+	const auto status = send_with_retry([&] { return _spialert_api->get_status(); });
+	if (!status.response.is_success())
+		return std::unexpected(std::format("Server status is unknown: {}", describe(status)));
 
-	return response.dto.status ? ServerStateEnum::ONLINE_STATE : ServerStateEnum::OFFLINE_STATE;
+	return status.response.dto.status ? ServerStateEnum::ONLINE_STATE : ServerStateEnum::OFFLINE_STATE;
 }
 
 std::expected<void, std::string> SpialertService::send_img(const std::filesystem::path& image_path)
@@ -106,23 +115,24 @@ std::expected<api::dto::EventObjectDto, std::string> SpialertService::create_eve
 	event.timestamp = std::chrono::system_clock::now();
 
 	// NOTE: a resend keeps event_uid and timestamp, so the server returns the existing event instead of a duplicate
-	const auto created = send_with_retry([&] { return _spialert_api->post_events(event); }).response;
-	if (!created.is_success())
+	const auto created = send_with_retry([&] { return _spialert_api->post_events(event); });
+	if (!created.response.is_success())
 		return std::unexpected(std::format("Event was not created: {}", describe(created)));
 
-	return created.dto;
+	return created.response.dto;
 }
 
 std::expected<void, std::string> SpialertService::upload_image(const model::Image& image, int event_id) const
 {
-	const auto [response, resent] = send_with_retry([&] { return _spialert_api->post_image(image, event_id); });
+	const auto uploaded = send_with_retry([&] { return _spialert_api->post_image(image, event_id); });
+	const auto& response = uploaded.response;
 
 	// NOTE: 409 after a resend means the lost attempt has already uploaded the image
-	if (resent && response.status_code == HTTP_CONFLICT)
+	if (uploaded.resent && response.status_code == HTTP_CONFLICT)
 		return {};
 
 	if (!response.is_success())
-		return std::unexpected(std::format("Image for event {} was not uploaded: {}", event_id, describe(response)));
+		return std::unexpected(std::format("Image for event {} was not uploaded: {}", event_id, describe(uploaded)));
 
 	if (!response.dto.image_uploaded)
 		return std::unexpected(
@@ -131,30 +141,58 @@ std::expected<void, std::string> SpialertService::upload_image(const model::Imag
 	return {};
 }
 
-SpialertService::SendResult SpialertService::send_with_retry(
-	const std::function<api::ApiResponse<api::dto::EventObjectDto>()>& request)
+template <typename RequestType>
+SpialertService::SendResult<std::invoke_result_t<const RequestType&>> SpialertService::send_with_retry(
+	const RequestType& request) const
 {
-	// TODO: backoff between attempts, wait Retry-After on 429, no resend on permanent errors (TLS 12175, DNS 12007)
-	// TODO: the delays and the Retry-After cap from secret/config.json
-	SendResult result;
-	for (int attempt = 0; attempt < MAX_SEND_ATTEMPTS; ++attempt)
+	SendResult<std::invoke_result_t<const RequestType&>> result;
+	for (int attempt = 1; attempt <= MAX_SEND_ATTEMPTS; ++attempt)
 	{
-		result.resent = attempt > 0;
 		result.response = request();
 		const auto& error = result.response.error;
-		const bool network_error = error && error->source == api::ApiError::SourceEnum::NETWORK_SOURCE;
-		if (!network_error)
+		const bool rate_limited = error && is_rate_limited(*error);
+		const bool network_error = error && error->is_transient_network_error();
+		if (!rate_limited && !network_error)
 			break;
+
+		const auto delay =
+			rate_limited ? result.response.retry_after.value_or(DEFAULT_RETRY_AFTER) : network_backoff(attempt);
+		const bool wait_too_long = rate_limited && delay > MAX_RETRY_AFTER;
+		if (wait_too_long)
+		{
+			result.give_up_reason =
+				std::format("server asks to wait {} s, more than {} s", delay.count(), MAX_RETRY_AFTER.count());
+			break;
+		}
+		if (attempt == MAX_SEND_ATTEMPTS)
+			break;
+
+		// NOTE: 429 means the server has not processed the request, so only a network error makes the outcome unknown
+		result.resent = result.resent || network_error;
+		_retry_waiter->wait(delay, rate_limited ? IRetryWaiter::RetryReasonEnum::RATE_LIMIT_REASON
+		                                        : IRetryWaiter::RetryReasonEnum::NETWORK_REASON);
 	}
 	return result;
 }
 
-template <typename DtoType>
-std::string SpialertService::describe(const api::ApiResponse<DtoType>& response)
+bool SpialertService::is_rate_limited(const api::ApiError& error)
 {
-	if (!response.error)
-		return std::format("HTTP {}", response.status_code);
-	return response.error->describe();
+	return error.source == api::ApiError::SourceEnum::SERVER_SOURCE && error.status_code == HTTP_TOO_MANY_REQUESTS;
+}
+
+std::chrono::seconds SpialertService::network_backoff(const int attempt)
+{
+	return NETWORK_BACKOFF_BASE * (1 << (attempt - 1));
+}
+
+template <typename ResponseType>
+std::string SpialertService::describe(const SendResult<ResponseType>& result)
+{
+	const auto& response = result.response;
+	std::string text = response.error ? response.error->describe() : std::format("HTTP {}", response.status_code);
+	if (!result.give_up_reason.empty())
+		text += std::format(" ({})", result.give_up_reason);
+	return text;
 }
 
 } // namespace app

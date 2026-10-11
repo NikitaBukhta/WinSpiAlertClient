@@ -49,6 +49,7 @@ private:
 	static std::expected<HttpResponse, DWORD> read_response(HINTERNET request);
 
 	static HttpResponse make_error(DWORD error_code);
+	static FailureEnum classify_error(DWORD error_code);
 	static std::optional<DWORD> query_number_header(HINTERNET request, DWORD header,
 	                                                const wchar_t* name = WINHTTP_HEADER_NAME_BY_INDEX);
 	static std::string query_text_header(HINTERNET request, DWORD header);

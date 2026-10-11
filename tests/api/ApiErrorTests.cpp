@@ -58,11 +58,27 @@ TEST(ApiErrorTests, NotJsonErrorWithoutStatusTextShowsOnlyStatusCode)
 TEST(ApiErrorTests, NetworkErrorShowsWinHttpMessage)
 {
 	const ApiError error =
-		ApiError::network(12029, "A connection with the server could not be established (error 12029)");
+		ApiError::network(12029, "A connection with the server could not be established (error 12029)",
+		                  net::FailureEnum::TRANSIENT_FAILURE);
 
 	EXPECT_EQ(error.source, ApiError::SourceEnum::NETWORK_SOURCE);
 	EXPECT_EQ(error.network_code, 12029u);
 	EXPECT_EQ(error.describe(), "network error: A connection with the server could not be established (error 12029)");
+}
+
+TEST(ApiErrorTests, TransientNetworkErrorIsTransient)
+{
+	EXPECT_TRUE(ApiError::network(12029, "", net::FailureEnum::TRANSIENT_FAILURE).is_transient_network_error());
+}
+
+TEST(ApiErrorTests, PermanentNetworkErrorIsNotTransient)
+{
+	EXPECT_FALSE(ApiError::network(12175, "", net::FailureEnum::PERMANENT_FAILURE).is_transient_network_error());
+}
+
+TEST(ApiErrorTests, ServerErrorIsNotTransientNetworkError)
+{
+	EXPECT_FALSE(ApiError::server(503, "", ServerErrorDto{}).is_transient_network_error());
 }
 
 TEST(ApiErrorTests, LocalErrorShowsItsMessage)
