@@ -72,3 +72,29 @@ TEST(TimeParserTests, InvalidTimeReturnsDefault)
 	EXPECT_EQ(TimeParser::parse_iso8601("2026-10-11T12:60:00.000Z"), utils::time_point{});
 	EXPECT_EQ(TimeParser::parse_iso8601("2026-10-11T12:30:60.000Z"), utils::time_point{});
 }
+
+TEST(TimeParserTests, FormatsWithMillisecondsAndZ)
+{
+	constexpr auto time = sys_days{2026y / October / 11} + 12h + 30min + 45s + 123ms;
+
+	EXPECT_EQ(TimeParser::format_iso8601(time), "2026-10-11T12:30:45.123Z");
+}
+
+TEST(TimeParserTests, FormatsWholeSecondsWithZeroMilliseconds)
+{
+	EXPECT_EQ(TimeParser::format_iso8601(sys_days{2026y / January / 2} + 3h), "2026-01-02T03:00:00.000Z");
+}
+
+TEST(TimeParserTests, FormatTruncatesBelowMilliseconds)
+{
+	constexpr auto time = sys_days{2026y / October / 11} + 999ms + 999us;
+
+	EXPECT_EQ(TimeParser::format_iso8601(time), "2026-10-11T00:00:00.999Z");
+}
+
+TEST(TimeParserTests, FormattedTimeParsesBack)
+{
+	const auto now = floor<milliseconds>(system_clock::now());
+
+	EXPECT_EQ(TimeParser::parse_iso8601(TimeParser::format_iso8601(now)), now);
+}

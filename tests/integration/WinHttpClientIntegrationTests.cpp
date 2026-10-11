@@ -1,13 +1,14 @@
 #include <gtest/gtest.h>
 
 #include <chrono>
-#include <cstdio>
 #include <string>
 
 #include "MockServerEnvironment.h"
+#include "api/dto/EventRequestDto.h"
 #include "api/dto/EventsListDto.h"
 #include "tests/helpers/DtoParser.h"
 #include "tests/helpers/MockServerProcess.h"
+#include "tests/helpers/RequestBody.h"
 
 #define API_KEY_HEADER "X-API-Key: " MOCK_API_KEY
 #define JSON_HEADERS API_KEY_HEADER "\r\nContent-Type: application/json"
@@ -18,8 +19,10 @@
 // a loopback address that is not in the mock certificate (it covers localhost and 127.0.0.1 only)
 #define HOST_NOT_IN_CERTIFICATE "127.0.0.2"
 
+using namespace std::chrono;
 using integration::MockServerTest;
 using test_helpers::DtoParser;
+using test_helpers::RequestBody;
 
 namespace
 {
@@ -32,8 +35,13 @@ std::string event_json(int number)
 {
 	char uid[32]{};
 	std::snprintf(uid, sizeof(uid), "uid-%04d", number);
-	return std::string(R"({"event_uid":")") + uid +
-	       R"(","event_code":3,"file_name":"a.png","timestamp":"2026-10-11T12:30:45Z"})";
+
+	api::dto::EventRequestDto event;
+	event.event_uid = uid;
+	event.event_code = 3;
+	event.file_name = "a.png";
+	event.timestamp = sys_days{2026y / October / 11} + 12h + 30min + 45s;
+	return api::dto::EventRequestMapper::toJson(event);
 }
 
 } // namespace
@@ -75,17 +83,34 @@ TEST_F(WinHttpClientIntegrationTests, UnknownPathReturnsNotFound)
 
 TEST_F(WinHttpClientIntegrationTests, PostSendsBodyAndAllHeaders)
 {
-	const auto created = _client.send_request(EVENTS_PATH, "POST", event_json(1), JSON_HEADERS);
-	const auto repeated = _client.send_request(EVENTS_PATH, "POST", event_json(1), JSON_HEADERS);
+	const auto created =
+		_client.send_request(EVENTS_PATH, "POST", RequestBody::from_string(event_json(1)), JSON_HEADERS);
+	const auto repeated =
+		_client.send_request(EVENTS_PATH, "POST", RequestBody::from_string(event_json(1)), JSON_HEADERS);
 
 	EXPECT_EQ(created.status_code, 201u) << created.body;
 	EXPECT_NE(created.body.find(R"("event_uid": "uid-0001")"), std::string::npos) << created.body;
 	EXPECT_EQ(repeated.status_code, 200u) << "same event_uid must be idempotent: " << repeated.body;
 }
 
+TEST_F(WinHttpClientIntegrationTests, ServerRejectsAnyFieldBeyondTheRequestDto)
+{
+	std::string body = event_json(1);
+	body.insert(body.rfind('}'), R"(,"event_id":1)");
+
+	const auto accepted =
+		_client.send_request(EVENTS_PATH, "POST", RequestBody::from_string(event_json(1)), JSON_HEADERS);
+	const auto rejected = _client.send_request(EVENTS_PATH, "POST", RequestBody::from_string(body), JSON_HEADERS);
+
+	EXPECT_EQ(accepted.status_code, 201u) << accepted.body;
+	EXPECT_EQ(rejected.status_code, 422u);
+	EXPECT_NE(rejected.body.find("Extra inputs are not permitted"), std::string::npos) << rejected.body;
+}
+
 TEST_F(WinHttpClientIntegrationTests, PostWithoutContentTypeIsRejectedByServer)
 {
-	const auto response = _client.send_request(EVENTS_PATH, "POST", event_json(1), API_KEY_HEADER);
+	const auto response =
+		_client.send_request(EVENTS_PATH, "POST", RequestBody::from_string(event_json(1)), API_KEY_HEADER);
 
 	EXPECT_EQ(response.status_code, 415u) << response.body;
 }
@@ -93,7 +118,9 @@ TEST_F(WinHttpClientIntegrationTests, PostWithoutContentTypeIsRejectedByServer)
 TEST_F(WinHttpClientIntegrationTests, ReadsBodyLargerThanOneChunk)
 {
 	for (int number = 1; number <= BULK_EVENT_COUNT; ++number)
-		ASSERT_EQ(_client.send_request(EVENTS_PATH, "POST", event_json(number), JSON_HEADERS).status_code, 201u);
+		ASSERT_EQ(_client.send_request(EVENTS_PATH, "POST", RequestBody::from_string(event_json(number)), JSON_HEADERS)
+		              .status_code,
+		          201u);
 
 	const auto response = _client.send_request(EVENTS_PATH "?limit=100", "GET", {}, API_KEY_HEADER);
 	ASSERT_EQ(response.status_code, 200u);
@@ -154,8 +181,9 @@ TEST_F(WinHttpClientIntegrationTests, LostResponseCanBeResentWithTheSameEventUid
 {
 	add_fault(R"({"fault":"drop","method":"POST","path":")" EVENTS_PATH R"("})");
 
-	const auto lost = _client.send_request(EVENTS_PATH, "POST", event_json(1), JSON_HEADERS);
-	const auto resent = _client.send_request(EVENTS_PATH, "POST", event_json(1), JSON_HEADERS);
+	const auto lost = _client.send_request(EVENTS_PATH, "POST", RequestBody::from_string(event_json(1)), JSON_HEADERS);
+	const auto resent =
+		_client.send_request(EVENTS_PATH, "POST", RequestBody::from_string(event_json(1)), JSON_HEADERS);
 
 	EXPECT_FALSE(lost.has_response());
 	EXPECT_EQ(resent.status_code, 200u) << "the server already has the event, resend must not create a duplicate";
@@ -169,7 +197,6 @@ TEST(WinHttpClientTlsTests, HostNotInCertificateIsRejected)
 	const test_helpers::MockServerProcess mock(HOST_NOT_IN_CERTIFICATE, port);
 	ASSERT_TRUE(mock.is_listening());
 	net::WinHttpClient client(HOST_NOT_IN_CERTIFICATE, TEST_USER_AGENT, port);
-	ASSERT_TRUE(client.open());
 
 	const auto response = client.send_request(STATUS_PATH, "GET", {}, "X-API-Key: test-key");
 

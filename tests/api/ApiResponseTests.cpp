@@ -1,6 +1,6 @@
 #include <gtest/gtest.h>
 
-#include "api/ISpialertAPI.h"
+#include "api/ApiResponse.h"
 #include "api/dto/StatusDto.h"
 
 using api::ApiResponse;

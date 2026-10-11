@@ -1,5 +1,7 @@
 #include "MockServerEnvironment.h"
 
+#include "tests/helpers/RequestBody.h"
+
 // high enough that bulk requests in one test never hit it; 429 is tested through an injected fault
 #define MOCK_ARGS "--api-key " MOCK_API_KEY " --rate-limit 100000"
 
@@ -19,7 +21,6 @@ void MockServerEnvironment::SetUp()
 										  ". Run 'py scripts\\project.py configure' once to create .venv";
 
 	net::WinHttpClient client(MOCK_HOST, TEST_USER_AGENT, _port);
-	ASSERT_TRUE(client.open());
 	const net::HttpResponse probe = client.send_request("/__mock__/state", "GET", {}, {});
 	ASSERT_NE(probe.error_code, static_cast<unsigned long>(ERROR_WINHTTP_SECURE_FAILURE))
 	    << "the mock certificate is not trusted: run 'py scripts\\mock_server.py install-cert' once";
@@ -38,14 +39,14 @@ unsigned short MockServerEnvironment::port()
 
 void MockServerTest::SetUp()
 {
-	ASSERT_TRUE(_client.open());
 	const net::HttpResponse reset = _client.send_request("/__mock__/reset", "POST", {}, {});
 	ASSERT_EQ(reset.status_code, 200u) << reset.error_message;
 }
 
 void MockServerTest::add_fault(const std::string& fault_json)
 {
-	const net::HttpResponse added = _client.send_request("/__mock__/faults", "POST", fault_json, {});
+	const net::HttpResponse added =
+		_client.send_request("/__mock__/faults", "POST", test_helpers::RequestBody::from_string(fault_json), {});
 	ASSERT_EQ(added.status_code, 200u) << added.body << added.error_message;
 }
 

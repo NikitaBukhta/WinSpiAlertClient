@@ -10,57 +10,28 @@
 
 using net::WinHttpClient;
 
-TEST(WinHttpClientTests, OpenAndCloseSucceed)
+TEST(WinHttpClientTests, FirstRequestOpensTheConnection)
 {
 	WinHttpClient client(LOCAL_HOST, TEST_USER_AGENT, CLOSED_PORT);
+	const auto response = client.send_request("/api/v1/status", "GET", {}, {});
 
-	EXPECT_TRUE(client.open());
-	EXPECT_TRUE(client.close());
+	EXPECT_EQ(response.error_code, ERROR_WINHTTP_CANNOT_CONNECT) << response.error_message;
 }
 
-TEST(WinHttpClientTests, OpenTwiceSucceeds)
-{
-	WinHttpClient client(LOCAL_HOST, TEST_USER_AGENT, CLOSED_PORT);
-
-	EXPECT_TRUE(client.open());
-	EXPECT_TRUE(client.open());
-}
-
-TEST(WinHttpClientTests, EmptyHostFailsToOpen)
+TEST(WinHttpClientTests, FailedOpenReportsTheRealReason)
 {
 	WinHttpClient client("", TEST_USER_AGENT, CLOSED_PORT);
-
-	EXPECT_FALSE(client.open());
-	EXPECT_EQ(client.send_request("/api/v1/status", "GET", {}, {}).error_code, ERROR_WINHTTP_INCORRECT_HANDLE_STATE);
-}
-
-TEST(WinHttpClientTests, SendBeforeOpenReturnsHandleStateError)
-{
-	WinHttpClient client(LOCAL_HOST, TEST_USER_AGENT, CLOSED_PORT);
 
 	const auto response = client.send_request("/api/v1/status", "GET", {}, {});
 
 	EXPECT_FALSE(response.has_response());
-	EXPECT_EQ(response.error_code, ERROR_WINHTTP_INCORRECT_HANDLE_STATE);
-	EXPECT_EQ(response.status_code, 0u);
-	EXPECT_NE(response.error_message.find("12019"), std::string::npos) << response.error_message;
-}
-
-TEST(WinHttpClientTests, SendAfterCloseReturnsHandleStateError)
-{
-	WinHttpClient client(LOCAL_HOST, TEST_USER_AGENT, CLOSED_PORT);
-	ASSERT_TRUE(client.open());
-	client.close();
-
-	const auto response = client.send_request("/api/v1/status", "GET", {}, {});
-
-	EXPECT_EQ(response.error_code, ERROR_WINHTTP_INCORRECT_HANDLE_STATE);
+	EXPECT_NE(response.error_code, 0u);
+	EXPECT_NE(response.error_code, static_cast<unsigned long>(ERROR_WINHTTP_INCORRECT_HANDLE_STATE));
 }
 
 TEST(WinHttpClientTests, ClosedPortReturnsCannotConnect)
 {
 	WinHttpClient client(LOCAL_HOST, TEST_USER_AGENT, CLOSED_PORT);
-	ASSERT_TRUE(client.open());
 
 	const auto response = client.send_request("/api/v1/status", "GET", {}, {});
 
@@ -68,4 +39,15 @@ TEST(WinHttpClientTests, ClosedPortReturnsCannotConnect)
 	EXPECT_EQ(response.error_code, ERROR_WINHTTP_CANNOT_CONNECT);
 	EXPECT_EQ(response.status_code, 0u);
 	EXPECT_NE(response.error_message.find("12029"), std::string::npos) << response.error_message;
+}
+
+TEST(WinHttpClientTests, SeveralRequestsReuseTheOpenedConnection)
+{
+	WinHttpClient client(LOCAL_HOST, TEST_USER_AGENT, CLOSED_PORT);
+
+	const auto first = client.send_request("/api/v1/status", "GET", {}, {});
+	const auto second = client.send_request("/api/v1/status", "GET", {}, {});
+
+	EXPECT_EQ(first.error_code, ERROR_WINHTTP_CANNOT_CONNECT);
+	EXPECT_EQ(second.error_code, ERROR_WINHTTP_CANNOT_CONNECT);
 }
