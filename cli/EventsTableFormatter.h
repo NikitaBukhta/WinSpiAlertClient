@@ -9,6 +9,7 @@
 #include "app/SpialertService.h"
 
 #define EVENTS_TABLE_COLUMNS 5
+#define MAX_FILE_NAME_WIDTH 40
 
 namespace cli
 {
@@ -27,6 +28,7 @@ private:
 	[[nodiscard]] std::string format_row(const Row& row) const;
 	[[nodiscard]] std::string format_rule() const;
 	[[nodiscard]] std::string format_summary() const;
+	[[nodiscard]] std::string format_truncation() const;
 	static Row header_row();
 	static Row make_row(const api::dto::EventObjectDto& event);
 	static std::string format_file_name(std::string_view file_name);

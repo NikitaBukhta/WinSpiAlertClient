@@ -4,6 +4,7 @@
 
 #define NETWORK_ERROR_FORMAT "network error: {}"
 #define NOT_JSON_ERROR_FORMAT "{} (response is not a JSON error)"
+#define UNREADABLE_RESPONSE_FORMAT "HTTP {}, but the response body cannot be read"
 #define DETAILS_SEPARATOR "; "
 
 namespace api
@@ -37,6 +38,14 @@ ApiError ApiError::local(std::string message)
 	return error;
 }
 
+ApiError ApiError::unreadable_response(const int status_code)
+{
+	ApiError error;
+	error.source = SourceEnum::RESPONSE_SOURCE;
+	error.status_code = status_code;
+	return error;
+}
+
 std::string ApiError::describe() const
 {
 	switch (source)
@@ -45,6 +54,8 @@ std::string ApiError::describe() const
 		return std::format(NETWORK_ERROR_FORMAT, message);
 	case SourceEnum::SERVER_SOURCE:
 		return describe_server_error();
+	case SourceEnum::RESPONSE_SOURCE:
+		return std::format(UNREADABLE_RESPONSE_FORMAT, status_code);
 	case SourceEnum::LOCAL_SOURCE:
 		break;
 	}

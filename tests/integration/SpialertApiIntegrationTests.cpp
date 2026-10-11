@@ -5,6 +5,7 @@
 #include <string>
 
 #include "MockServerEnvironment.h"
+#include "api/ApiConstants.h"
 #include "api/SpialertApi.h"
 #include "api/dto/EventObjectDto.h"
 #include "api/dto/EventRequestDto.h"
@@ -15,8 +16,6 @@
 #include "utils/UuidGenerator.h"
 
 #define SERVER_TIME_TOLERANCE std::chrono::minutes{1}
-#define PNG_IMAGE "\x89PNG\r\n\x1a\nimage-bytes"
-#define DEFAULT_LIMIT 20
 
 using integration::MockServerEnvironment;
 using integration::MockServerTest;
@@ -121,7 +120,7 @@ TEST_F(SpialertApiIntegrationTests, ResendAfterLostResponseDoesNotDuplicateEvent
 
 	EXPECT_EQ(lost.status_code, 0);
 	EXPECT_EQ(resent.status_code, 200) << "the first request reached the server, the resend must find it";
-	EXPECT_EQ(spialert_api->get_events(DEFAULT_LIMIT, 0, std::nullopt).dto.total, 1);
+	EXPECT_EQ(spialert_api->get_events(DEFAULT_EVENTS_LIMIT, 0, std::nullopt).dto.total, 1);
 }
 
 TEST_F(SpialertApiIntegrationTests, PostImageUploadsTheRegisteredFile)
@@ -159,8 +158,8 @@ TEST_F(SpialertApiIntegrationTests, GetEventsFiltersByImageUploaded)
 	const model::Image image("a.png", PNG_IMAGE);
 	ASSERT_EQ(spialert_api->post_image(image, with_image.dto.event_id).status_code, 200);
 
-	const auto pending = spialert_api->get_events(DEFAULT_LIMIT, 0, false);
-	const auto uploaded = spialert_api->get_events(DEFAULT_LIMIT, 0, true);
+	const auto pending = spialert_api->get_events(DEFAULT_EVENTS_LIMIT, 0, false);
+	const auto uploaded = spialert_api->get_events(DEFAULT_EVENTS_LIMIT, 0, true);
 
 	ASSERT_TRUE(pending.is_success());
 	ASSERT_EQ(pending.dto.items.size(), 1u);

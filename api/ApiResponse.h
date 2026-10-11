@@ -17,9 +17,10 @@ struct ApiResponse
 	std::optional<ApiError> error;
 	std::optional<std::chrono::seconds> retry_after;
 
+	// NOTE: a 2xx status with an unreadable body is not a success: the client cannot go on with it
 	[[nodiscard]] bool is_success() const noexcept
 	{
-		return status_code >= 200 && status_code < 300;
+		return !error && status_code >= 200 && status_code < 300;
 	}
 };
 

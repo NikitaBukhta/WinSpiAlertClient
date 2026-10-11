@@ -14,7 +14,8 @@ public:
 	enum class RetryReasonEnum : uint8_t
 	{
 		RATE_LIMIT_REASON,
-		NETWORK_REASON
+		NETWORK_REASON,
+		OFFLINE_REASON
 	};
 
 	virtual ~IRetryWaiter() = default;

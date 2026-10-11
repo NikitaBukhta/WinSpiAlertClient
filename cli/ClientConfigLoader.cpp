@@ -8,10 +8,11 @@
 #include "rapidjson/error/en.h"
 #include "rapidjson/reader.h"
 #include "utils/FileUtils.h"
+#include "utils/SizeUnits.h"
 
 #define DEFAULT_CONFIG_PATH "secret/config.json"
 #define CONFIG_EXAMPLE_PATH "secret/config.json.example"
-#define MAX_CONFIG_FILE_SIZE (64 * 1024)
+#define MAX_CONFIG_FILE_SIZE (64 * KIB)
 #define REQUIRED_SCHEME "https"
 #define FIRST_KEY_CHAR '!'
 #define LAST_KEY_CHAR '~'

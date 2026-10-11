@@ -2,7 +2,6 @@
 
 #include <algorithm>
 
-// TODO: move to secret/config.json
 #define MAX_STEPS 4
 #define JPEG_QUALITY_ONLY_MAX_RATIO 1.5
 #define JPEG_MIN_QUALITY 0.75f

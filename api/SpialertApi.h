@@ -29,9 +29,11 @@ private:
 	template <typename DtoType>
 	ApiResponse<DtoType> execute_request(const std::string& method, const std::string& path,
 	                                     std::span<const std::string_view> body_parts, const std::string& content_type,
-	                                     DtoType (*from_json)(char*));
+	                                     std::optional<DtoType> (*from_json)(char*));
 	template <typename DtoType>
 	static ApiResponse<DtoType> local_error(std::string message);
+	// NOTE: an event without event_id cannot get its image, so such a response counts as unreadable
+	static ApiResponse<dto::EventObjectDto> require_event_id(ApiResponse<dto::EventObjectDto> response);
 
 private:
 	std::unique_ptr<net::IHttpClient> _http_client;

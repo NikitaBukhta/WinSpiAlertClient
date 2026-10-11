@@ -1,11 +1,10 @@
 #include <gtest/gtest.h>
 
 #include "net/WinHttpClient.h"
+#include "tests/helpers/TestConstants.h"
 
 // Only local checks: no requests leave the machine
 
-#define TEST_USER_AGENT "WinSpiAlertClient-tests/1.0"
-#define LOCAL_HOST "127.0.0.1"
 #define CLOSED_PORT 1
 
 using net::WinHttpClient;

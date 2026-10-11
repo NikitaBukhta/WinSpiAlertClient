@@ -1,6 +1,7 @@
 #ifndef WINSPIALERTCLIENT_STATUSDTO_H
 #define WINSPIALERTCLIENT_STATUSDTO_H
 
+#include <optional>
 #include <string>
 #include <string_view>
 
@@ -54,16 +55,10 @@ struct StatusDtoHandler : utils::BaseSaxHandler<StatusDtoHandler>
 class StatusMapper
 {
 public:
-	static StatusDto fromJson(char* json_buffer)
+	// nullopt if the body is not valid JSON
+	static std::optional<StatusDto> fromJson(char* json_buffer)
 	{
-		StatusDto out;
-		rapidjson::Reader reader;
-		rapidjson::InsituStringStream ss(json_buffer);
-		StatusDtoHandler handler{out};
-
-		reader.Parse<rapidjson::kParseInsituFlag>(ss, handler);
-
-		return out;
+		return utils::SaxParser::parse_in_situ<StatusDtoHandler, StatusDto>(json_buffer);
 	}
 };
 

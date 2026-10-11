@@ -1,6 +1,7 @@
 #ifndef WINSPIALERTCLIENT_EVENTOBJECTDTO_H
 #define WINSPIALERTCLIENT_EVENTOBJECTDTO_H
 
+#include <optional>
 #include <string>
 #include <string_view>
 
@@ -89,16 +90,10 @@ struct EventObjectHandler : utils::BaseSaxHandler<EventObjectHandler>
 class EventObjectMapper
 {
 public:
-	static EventObjectDto fromJson(char* json_buffer)
+	// nullopt if the body is not valid JSON
+	static std::optional<EventObjectDto> fromJson(char* json_buffer)
 	{
-		EventObjectDto out;
-		rapidjson::Reader reader;
-		rapidjson::InsituStringStream ss(json_buffer);
-		EventObjectHandler handler{out};
-
-		reader.Parse<rapidjson::kParseInsituFlag>(ss, handler);
-
-		return out;
+		return utils::SaxParser::parse_in_situ<EventObjectHandler, EventObjectDto>(json_buffer);
 	}
 };
 

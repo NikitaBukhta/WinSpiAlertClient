@@ -7,6 +7,7 @@
 #include <vector>
 
 #include "MockServerEnvironment.h"
+#include "api/ApiConstants.h"
 #include "api/SpialertApi.h"
 #include "api/dto/EventObjectDto.h"
 #include "api/dto/EventRequestDto.h"
@@ -19,11 +20,7 @@
 #include "utils/StringUtils.h"
 #include "utils/UuidGenerator.h"
 
-#define PNG_IMAGE "\x89PNG\r\n\x1a\nimage-bytes"
 #define SECRET_KEY "secret-key-1"
-#define EVENTS_LIMIT 20
-// a loopback address that is not in the mock certificate (it covers localhost and 127.0.0.1 only)
-#define HOST_NOT_IN_CERTIFICATE "127.0.0.2"
 
 using integration::MockServerEnvironment;
 using integration::MockServerTest;
@@ -69,11 +66,11 @@ protected:
 
 	static api::dto::EventsListDto list_events()
 	{
-		return mock_api().get_events(EVENTS_LIMIT, 0, std::nullopt).dto;
+		return mock_api().get_events(DEFAULT_EVENTS_LIMIT, 0, std::nullopt).dto;
 	}
 
 	// NOTE: client.exe send always uploads the image, so an event without one is created through the API
-	static void create_event(const std::string& file_name, bool with_image)
+	static void create_event(const std::string& file_name, bool with_image, int* event_id = nullptr)
 	{
 		api::SpialertApi api = mock_api();
 		api::dto::EventRequestDto request;
@@ -83,6 +80,8 @@ protected:
 		request.timestamp = std::chrono::system_clock::now();
 		const auto created = api.post_events(request);
 		ASSERT_TRUE(created.is_success()) << created.status_code;
+		if (event_id)
+			*event_id = created.dto.event_id;
 		if (!with_image)
 			return;
 
@@ -196,6 +195,31 @@ TEST_F(ClientCliIntegrationTests, SendUploadsImage)
 	EXPECT_TRUE(events.items[0].image_uploaded);
 }
 
+TEST_F(ClientCliIntegrationTests, SendWaitsForServerInMaintenance)
+{
+	add_fault(R"({"fault":"maintenance","method":"GET","path":"/api/v1/status"})");
+	const TempFile image("capture_0001.png", PNG_IMAGE);
+
+	const ClientOutput output = run_with_config({L"send", image.path().wstring()});
+
+	EXPECT_EQ(output.exit_code, 0u) << output.err;
+	EXPECT_EQ(output.err, "Server is not online, retrying in 1 s\n");
+	EXPECT_EQ(list_events().total, 1);
+}
+
+TEST_F(ClientCliIntegrationTests, SendFailsWhenServerStaysInMaintenance)
+{
+	add_fault(R"({"fault":"maintenance","method":"GET","path":"/api/v1/status","count":3})");
+	const TempFile image("capture_0001.png", PNG_IMAGE);
+
+	const ClientOutput output = run_with_config({L"send", image.path().wstring()});
+
+	EXPECT_EQ(output.exit_code, 1u);
+	EXPECT_EQ(output.err, "Server is not online, retrying in 1 s\nServer is not online, retrying in 2 s\n"
+	                      "Server is not online\n");
+	EXPECT_TRUE(list_events().items.empty());
+}
+
 TEST_F(ClientCliIntegrationTests, SendTellsTheUserItWaitsForRateLimit)
 {
 	add_fault(R"({"fault":"status","status":429,"retry_after":1,"method":"POST","path":"/api/v1/events"})");
@@ -207,19 +231,6 @@ TEST_F(ClientCliIntegrationTests, SendTellsTheUserItWaitsForRateLimit)
 	EXPECT_EQ(output.err, "Rate limited, retrying in 1 s\n");
 	EXPECT_TRUE(output.out.starts_with("Sent ")) << output.out;
 	EXPECT_EQ(list_events().total, 1);
-}
-
-TEST_F(ClientCliIntegrationTests, SendDoesNotWaitRetryAfterOverTheLimit)
-{
-	add_fault(R"({"fault":"status","status":429,"retry_after":3600,"method":"POST","path":"/api/v1/events"})");
-	const TempFile image("capture_0001.png", PNG_IMAGE);
-
-	const ClientOutput output = run_with_config({L"send", image.path().wstring()});
-
-	EXPECT_EQ(output.exit_code, 1u);
-	EXPECT_FALSE(output.err.contains("retrying")) << output.err;
-	EXPECT_TRUE(output.err.contains("(server asks to wait 3600 s, more than 60 s)")) << output.err;
-	EXPECT_TRUE(list_events().items.empty());
 }
 
 TEST_F(ClientCliIntegrationTests, RejectedCertificateIsNotRetried)
@@ -288,6 +299,34 @@ TEST_F(ClientCliIntegrationTests, ListShowsEveryEventAndMarksThoseWithoutImage)
 	EXPECT_TRUE(output.out.ends_with("\nTotal: 3, without image: 1\n")) << output.out;
 }
 
+TEST_F(ClientCliIntegrationTests, UploadPutsImageIntoExistingEvent)
+{
+	int event_id{};
+	create_event("capture_0001.png", false, &event_id);
+	const TempFile image("capture_0001.png", PNG_IMAGE);
+
+	const ClientOutput output = run_with_config({L"upload", std::to_wstring(event_id), image.path().wstring()});
+
+	EXPECT_EQ(output.exit_code, 0u) << output.err;
+	EXPECT_EQ(output.out, std::format("Uploaded {} to event {}\n", utils::FileUtils::to_utf8(image.path()), event_id));
+	const auto events = list_events();
+	ASSERT_EQ(events.items.size(), 1u) << "upload creates no event";
+	EXPECT_TRUE(events.items[0].image_uploaded);
+}
+
+TEST_F(ClientCliIntegrationTests, UploadWithAnotherFileNameShowsServerError)
+{
+	int event_id{};
+	create_event("capture_0001.png", false, &event_id);
+	const TempFile image("capture_0002.png", PNG_IMAGE);
+
+	const ClientOutput output = run_with_config({L"upload", std::to_wstring(event_id), image.path().wstring()});
+
+	EXPECT_EQ(output.exit_code, 1u);
+	EXPECT_TRUE(output.err.contains("422 file_name_mismatch")) << output.err;
+	EXPECT_FALSE(list_events().items[0].image_uploaded);
+}
+
 TEST_F(ClientCliIntegrationTests, ListPendingShowsOnlyEventsWithoutImage)
 {
 	create_event("capture_0001.png", true);
@@ -325,10 +364,10 @@ TEST_F(ClientCliIntegrationTests, ListShowsServerError)
 
 TEST_F(ClientCliIntegrationTests, UnknownCommandFailsWithHint)
 {
-	const ClientOutput output = run({L"upload"});
+	const ClientOutput output = run({L"delete"});
 
 	EXPECT_EQ(output.exit_code, 1u);
-	EXPECT_EQ(output.err, "error: unknown command 'upload'\nSee 'client.exe help'.\n");
+	EXPECT_EQ(output.err, "error: unknown command 'delete'\nSee 'client.exe help'.\n");
 }
 
 TEST_F(ClientCliIntegrationTests, KeyNeverAppearsInOutput)

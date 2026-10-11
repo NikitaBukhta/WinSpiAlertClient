@@ -17,21 +17,24 @@ include(FetchContent)
 FetchContent_Declare(
 	rapidjson
 	GIT_REPOSITORY https://github.com/Tencent/rapidjson.git
-	GIT_TAG master
-	GIT_SHALLOW TRUE
-	SOURCE_SUBDIR _no_cmake # header-only: skip add_subdirectory of rapidjson's own CMakeLists
+	# master of 2025-02-05: the 1.1.0 release is from 2016, a commit keeps the build reproducible
+	GIT_TAG 24b5e7a8b27f42fa16b96fc70aade9106cf7102f
+	# NOTE: rapidjson's own googletest submodule is not needed and its long paths break a deep build folder
+	GIT_SUBMODULES "" SOURCE_SUBDIR _no_cmake # header-only: skip add_subdirectory of rapidjson's own CMakeLists
 )
 FetchContent_MakeAvailable(rapidjson)
 
 add_library(
 	client_core STATIC
 	net/IHttpClient.h
+	net/NetworkConfig.h
 	net/WinHttpClient.cpp
 	net/WinHttpClient.h
 	net/MultipartBuilder.cpp
 	net/MultipartBuilder.h
 	model/Image.cpp
 	model/Image.h
+	model/ImageConstants.h
 	model/IImageCompressor.h
 	model/IImageCompressorFactory.h
 	model/WicImageCompressor.cpp
@@ -42,6 +45,7 @@ add_library(
 	model/ImageSizePredictor.h
 	api/ApiError.cpp
 	api/ApiError.h
+	api/ApiConstants.h
 	api/ApiResponse.h
 	api/ISpialertApi.h
 	api/SpialertApi.cpp
@@ -51,6 +55,7 @@ add_library(
 	utils/TimeParser.h
 	utils/StringUtils.cpp
 	utils/StringUtils.h
+	utils/SizeUnits.h
 	utils/UuidGenerator.cpp
 	utils/UuidGenerator.h
 	utils/FileUtils.cpp
@@ -65,6 +70,7 @@ add_library(
 	api/dto/EventsListDto.h
 	api/dto/ServerErrorDto.h
 	app/IRetryWaiter.h
+	app/ServiceConstants.h
 	app/SpialertService.cpp
 	app/SpialertService.h
 	cli/ClientConfig.h
@@ -128,6 +134,7 @@ if(WINSPIALERT_BUILD_TESTS)
 		tests/model/WicImageCompressorTests.cpp
 		tests/model/ImageSizePredictorTests.cpp
 		tests/helpers/ImageCodec.h
+		tests/helpers/TestConstants.h
 		tests/net/MultipartBuilderTests.cpp
 		tests/utils/FileUtilsTests.cpp
 		tests/utils/StringUtilsTests.cpp

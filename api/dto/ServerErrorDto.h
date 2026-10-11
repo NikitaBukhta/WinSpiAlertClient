@@ -1,6 +1,7 @@
 #ifndef WINSPIALERTCLIENT_SERVERERRORDTO_H
 #define WINSPIALERTCLIENT_SERVERERRORDTO_H
 
+#include <optional>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -93,16 +94,10 @@ struct ServerErrorHandler : utils::BaseSaxHandler<ServerErrorHandler>
 class ServerErrorMapper
 {
 public:
-	static ServerErrorDto fromJson(char* json_buffer)
+	// nullopt if the body is not valid JSON
+	static std::optional<ServerErrorDto> fromJson(char* json_buffer)
 	{
-		ServerErrorDto out;
-		rapidjson::Reader reader;
-		rapidjson::InsituStringStream ss(json_buffer);
-		ServerErrorHandler handler{out};
-
-		reader.Parse<rapidjson::kParseInsituFlag>(ss, handler);
-
-		return out;
+		return utils::SaxParser::parse_in_situ<ServerErrorHandler, ServerErrorDto>(json_buffer);
 	}
 };
 

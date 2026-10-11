@@ -116,16 +116,10 @@ struct EventsListHandler : utils::BaseSaxHandler<EventsListHandler>
 class EventsListMapper
 {
 public:
-	static EventsListDto fromJson(char* json_buffer)
+	// nullopt if the body is not valid JSON
+	static std::optional<EventsListDto> fromJson(char* json_buffer)
 	{
-		EventsListDto out;
-		rapidjson::Reader reader;
-		rapidjson::InsituStringStream ss(json_buffer);
-		EventsListHandler handler{out};
-
-		reader.Parse<rapidjson::kParseInsituFlag>(ss, handler);
-
-		return out;
+		return utils::SaxParser::parse_in_situ<EventsListHandler, EventsListDto>(json_buffer);
 	}
 };
 

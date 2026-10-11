@@ -66,20 +66,13 @@ TEST(ServerErrorDtoTests, ErrorAsStringIsEmpty)
 	EXPECT_TRUE(dto.message.empty());
 }
 
-TEST(ServerErrorDtoTests, HtmlBodyIsEmpty)
+TEST(ServerErrorDtoTests, HtmlBodyIsNotJson)
 {
-	const auto dto = DtoParser::parse<ServerErrorMapper>("<html><body><h1>502 Bad Gateway</h1></body></html>");
-
-	EXPECT_TRUE(dto.code.empty());
-	EXPECT_TRUE(dto.message.empty());
-	EXPECT_TRUE(dto.details.empty());
+	EXPECT_EQ(DtoParser::try_parse<ServerErrorMapper>("<html><body><h1>502 Bad Gateway</h1></body></html>"),
+	          std::nullopt);
 }
 
-TEST(ServerErrorDtoTests, EmptyBodyIsEmpty)
+TEST(ServerErrorDtoTests, EmptyBodyIsNotJson)
 {
-	const auto dto = DtoParser::parse<ServerErrorMapper>("");
-
-	EXPECT_TRUE(dto.code.empty());
-	EXPECT_TRUE(dto.message.empty());
-	EXPECT_TRUE(dto.details.empty());
+	EXPECT_EQ(DtoParser::try_parse<ServerErrorMapper>(""), std::nullopt);
 }

@@ -4,13 +4,13 @@
 
 #include "cli/ClientConfigLoader.h"
 #include "tests/helpers/TempFile.h"
+#include "tests/helpers/TestConstants.h"
 
 using cli::ClientConfigLoader;
 using cli::ConfigSource;
 using test_helpers::TempFile;
 
 #define VALID_CONFIG R"({"base_url": "https://challenge.spialert.com/api/v1", "api_key": "chk_test"})"
-#define HTTPS_DEFAULT_PORT 443
 
 namespace
 {

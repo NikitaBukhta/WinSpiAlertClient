@@ -16,7 +16,8 @@ struct ApiError
 	{
 		NETWORK_SOURCE,
 		SERVER_SOURCE,
-		LOCAL_SOURCE // the request was not sent
+		LOCAL_SOURCE,   // the request was not sent
+		RESPONSE_SOURCE // a success status, but the body cannot be read
 	};
 
 	SourceEnum source{};
@@ -29,6 +30,7 @@ struct ApiError
 	static ApiError network(uint32_t network_code, std::string message, net::FailureEnum network_failure);
 	static ApiError server(int status_code, std::string message, dto::ServerErrorDto server_error);
 	static ApiError local(std::string message);
+	static ApiError unreadable_response(int status_code);
 
 	[[nodiscard]] std::string describe() const;
 	[[nodiscard]] bool is_transient_network_error() const;

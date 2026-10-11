@@ -5,10 +5,11 @@
 
 #include "utils/FileUtils.h"
 #include "utils/StringUtils.h"
+#include "utils/SizeUnits.h"
 #include "utils/UuidGenerator.h"
 
 #define EXIT_TIMEOUT_MS 60'000
-#define MAX_OUTPUT_SIZE (1024 * 1024)
+#define MAX_OUTPUT_SIZE MIB
 #define TIMED_OUT_EXIT_CODE 0xDEAD
 
 namespace test_helpers

@@ -8,33 +8,32 @@
 #include <string>
 #include <vector>
 
+#include "api/ApiConstants.h"
 #include "api/ISpialertApi.h"
 #include "api/dto/EventObjectDto.h"
 #include "api/dto/EventRequestDto.h"
 #include "api/dto/EventsListDto.h"
 #include "api/dto/StatusDto.h"
 #include "app/IRetryWaiter.h"
+#include "app/ServiceConstants.h"
 #include "app/SpialertService.h"
+#include "net/NetworkConfig.h"
 #include "model/IImageCompressor.h"
 #include "model/IImageCompressorFactory.h"
 #include "model/Image.h"
 #include "model/WicImageCompressorFactory.h"
 #include "tests/helpers/ImageCodec.h"
 #include "tests/helpers/TempFile.h"
+#include "tests/helpers/TestConstants.h"
 
 #define EVENT_ID 42
 #define SEND_COUNT 50
 #define TIMESTAMP_TOLERANCE std::chrono::seconds{5}
-#define IMAGE_DATA "\x89PNG\r\n\x1a\nimage"
-#define MB (1024 * 1024)
-#define LARGE_SIDE 4000u
 #define NETWORK_ERROR_CODE 12029u
 #define NETWORK_ERROR_TEXT "A connection with the server could not be established (error 12029)"
 #define TLS_ERROR_CODE 12175u
 #define TLS_ERROR_TEXT "A security error occurred (error 12175)"
 #define RATE_LIMIT_ERROR_TEXT "Event was not created: 429 rate_limited: Rate limit exceeded"
-#define PAGE_SIZE 100
-#define MAX_PAGES 20
 
 using test_helpers::ImageCodec;
 using test_helpers::TempFile;
@@ -86,7 +85,7 @@ public:
 // a PNG of the given size as a compressor returns it
 model::Image compressed_png(size_t size)
 {
-	const std::string signature = IMAGE_DATA;
+	const std::string signature = PNG_IMAGE;
 	return model::Image("capture_0001.png", signature + std::string(size - signature.size(), 'x'));
 }
 
@@ -229,7 +228,7 @@ protected:
 	testing::StrictMock<MockImageCompressorFactory>* _compressor_factory{};
 	testing::StrictMock<MockRetryWaiter>* _retry_waiter{};
 	std::unique_ptr<app::SpialertService> _service;
-	const TempFile _image{"capture_0001.png", IMAGE_DATA};
+	const TempFile _image{"capture_0001.png", PNG_IMAGE};
 };
 
 } // namespace
@@ -286,16 +285,33 @@ TEST_F(SpialertServiceTests, SendImgCreatesEventForTheFileThenUploadsIt)
 	EXPECT_CALL(*_spialert_api, post_events(_))
 		.WillOnce(testing::DoAll(testing::SaveArg<0>(&sent), Return(event_response(201))));
 	const auto loaded_image =
-		AllOf(Property(&model::Image::file_name, "capture_0001.png"), Property(&model::Image::data, IMAGE_DATA));
+		AllOf(Property(&model::Image::file_name, "capture_0001.png"), Property(&model::Image::data, PNG_IMAGE));
 	EXPECT_CALL(*_spialert_api, post_image(loaded_image, EVENT_ID)).WillOnce(Return(event_response(200, true)));
 
 	EXPECT_TRUE(_service->send_img(_image.path()));
 
 	EXPECT_EQ(sent.file_name, "capture_0001.png");
 	EXPECT_FALSE(sent.event_uid.empty());
-	EXPECT_GE(sent.event_code, 1);
-	EXPECT_LE(sent.event_code, 10);
+	EXPECT_GE(sent.event_code, MIN_EVENT_CODE);
+	EXPECT_LE(sent.event_code, MAX_EVENT_CODE);
 	EXPECT_LT(std::chrono::abs(std::chrono::system_clock::now() - sent.timestamp), TIMESTAMP_TOLERANCE);
+}
+
+TEST_F(SpialertServiceTests, UploadImgUploadsIntoTheGivenEventWithoutCreatingOne)
+{
+	const auto loaded_image =
+		AllOf(Property(&model::Image::file_name, "capture_0001.png"), Property(&model::Image::data, PNG_IMAGE));
+	EXPECT_CALL(*_spialert_api, post_image(loaded_image, EVENT_ID)).WillOnce(Return(event_response(200, true)));
+
+	EXPECT_TRUE(_service->upload_img(EVENT_ID, _image.path()));
+}
+
+TEST_F(SpialertServiceTests, UploadImgOfMissingFileSendsNothing)
+{
+	const auto uploaded = _service->upload_img(EVENT_ID, "Z:\\no\\such\\capture.png");
+
+	ASSERT_FALSE(uploaded);
+	EXPECT_TRUE(uploaded.error().starts_with("Cannot read")) << uploaded.error();
 }
 
 TEST_F(SpialertServiceTests, SendImgResendsTheSameEventAfterNetworkError)
@@ -378,14 +394,16 @@ TEST_F(SpialertServiceTests, SendImgRetryAfterAtTheLimitIsWaited)
 	EXPECT_TRUE(_service->send_img(_image.path()));
 }
 
-TEST_F(SpialertServiceTests, SendImgRetryAfterOverTheLimitIsNotWaited)
+TEST_F(SpialertServiceTests, SendImgWaitsAnyRetryAfter)
 {
-	EXPECT_CALL(*_spialert_api, post_events(_)).WillOnce(Return(rate_limited<api::dto::EventObjectDto>(seconds{61})));
+	// NOTE: the spec says to wait Retry-After seconds, there is no upper limit
+	EXPECT_CALL(*_spialert_api, post_events(_))
+		.WillOnce(Return(rate_limited<api::dto::EventObjectDto>(seconds{3600})))
+		.WillOnce(Return(event_response(201)));
+	EXPECT_CALL(*_retry_waiter, wait(seconds{3600}, RetryReasonEnum::RATE_LIMIT_REASON));
+	EXPECT_CALL(*_spialert_api, post_image(_, EVENT_ID)).WillOnce(Return(event_response(200, true)));
 
-	const auto sent = _service->send_img(_image.path());
-
-	ASSERT_FALSE(sent);
-	EXPECT_EQ(sent.error(), RATE_LIMIT_ERROR_TEXT " (server asks to wait 61 s, more than 60 s)");
+	EXPECT_TRUE(_service->send_img(_image.path()));
 }
 
 TEST_F(SpialertServiceTests, SendImgGivesUpAfterThreeRateLimits)
@@ -574,7 +592,7 @@ TEST_F(SpialertServiceTests, SendImgUploadNotMarkedAsUploadedIsFailure)
 TEST_F(SpialertServiceTests, SendImgFileOverTheReadLimitCreatesNoEvent)
 {
 	// over MAX_IMAGE_SIZE + COMPRESSION_HEADROOM (20 MB): not even read
-	const TempFile huge("huge.png", IMAGE_DATA + std::string(MAX_IMAGE_SIZE + 20 * 1024 * 1024, 'x'));
+	const TempFile huge("huge.png", PNG_IMAGE + std::string(MAX_IMAGE_SIZE + COMPRESSION_HEADROOM, 'x'));
 
 	EXPECT_FALSE(_service->send_img(huge.path()));
 }
@@ -589,7 +607,7 @@ TEST_F(SpialertServiceTests, SendImgMissingFileCreatesNoEvent)
 
 TEST_F(SpialertServiceTests, SendImgUndecodableFileOverFiveMegabytesCreatesNoEvent)
 {
-	const TempFile large("capture_0001.png", IMAGE_DATA + std::string(MAX_IMAGE_SIZE, 'x'));
+	const TempFile large("capture_0001.png", PNG_IMAGE + std::string(MAX_IMAGE_SIZE, 'x'));
 	EXPECT_CALL(*_compressor_factory, create(_)).WillOnce([](const model::Image&) {
 		return std::unique_ptr<model::IImageCompressor>();
 	});
@@ -600,14 +618,14 @@ TEST_F(SpialertServiceTests, SendImgUndecodableFileOverFiveMegabytesCreatesNoEve
 TEST_F(SpialertServiceTests, SendImgOverFiveMegabytesSendsTheFirstFittingAttempt)
 {
 	// the first attempt is too large, the second one fits: no more attempts
-	const TempFile large("capture_0001.png", IMAGE_DATA + std::string(MAX_IMAGE_SIZE, 'x'));
+	const TempFile large("capture_0001.png", PNG_IMAGE + std::string(MAX_IMAGE_SIZE, 'x'));
 	auto& compressor = expect_compressor();
 	EXPECT_CALL(compressor, compress(_, _))
-		.WillOnce(Return(compressed_png(6 * MB)))
-		.WillOnce(Return(compressed_png(2 * MB)));
+		.WillOnce(Return(compressed_png(6 * MIB)))
+		.WillOnce(Return(compressed_png(2 * MIB)));
 	EXPECT_CALL(*_spialert_api, post_events(testing::Field(&api::dto::EventRequestDto::file_name, "capture_0001.png")))
 		.WillOnce(Return(event_response(201)));
-	EXPECT_CALL(*_spialert_api, post_image(Property(&model::Image::size, 2 * MB), EVENT_ID))
+	EXPECT_CALL(*_spialert_api, post_image(Property(&model::Image::size, 2 * MIB), EVENT_ID))
 		.WillOnce(Return(event_response(200, true)));
 
 	EXPECT_TRUE(_service->send_img(large.path()));
@@ -615,18 +633,18 @@ TEST_F(SpialertServiceTests, SendImgOverFiveMegabytesSendsTheFirstFittingAttempt
 
 TEST_F(SpialertServiceTests, SendImgThatNeverFitsCreatesNoEvent)
 {
-	const TempFile large("capture_0001.png", IMAGE_DATA + std::string(MAX_IMAGE_SIZE, 'x'));
+	const TempFile large("capture_0001.png", PNG_IMAGE + std::string(MAX_IMAGE_SIZE, 'x'));
 	auto& compressor = expect_compressor();
 	EXPECT_CALL(compressor, compress(_, _))
 		.Times(testing::Between(1, 4))
-		.WillRepeatedly(Return(compressed_png(6 * MB)));
+		.WillRepeatedly(Return(compressed_png(6 * MIB)));
 
 	EXPECT_FALSE(_service->send_img(large.path()));
 }
 
 TEST_F(SpialertServiceTests, SendImgThatCannotBeReencodedCreatesNoEvent)
 {
-	const TempFile large("capture_0001.png", IMAGE_DATA + std::string(MAX_IMAGE_SIZE, 'x'));
+	const TempFile large("capture_0001.png", PNG_IMAGE + std::string(MAX_IMAGE_SIZE, 'x'));
 	auto& compressor = expect_compressor();
 	EXPECT_CALL(compressor, compress(_, _)).WillOnce(Return(std::nullopt));
 
@@ -680,8 +698,8 @@ TEST_F(SpialertServiceTests, EveryEventGetsItsOwnUidAndACodeInRange)
 	for (const auto& event : sent)
 	{
 		uids.insert(event.event_uid);
-		EXPECT_GE(event.event_code, 1);
-		EXPECT_LE(event.event_code, 10);
+		EXPECT_GE(event.event_code, MIN_EVENT_CODE);
+		EXPECT_LE(event.event_code, MAX_EVENT_CODE);
 	}
 	EXPECT_EQ(uids.size(), static_cast<size_t>(SEND_COUNT));
 }
@@ -690,9 +708,12 @@ TEST_F(SpialertServiceTests, ListEventsReadsEveryPage)
 {
 	const std::optional<bool> no_filter;
 	testing::InSequence in_order;
-	EXPECT_CALL(*_spialert_api, get_events(PAGE_SIZE, 0, no_filter)).WillOnce(Return(events_page(250, 250, 100)));
-	EXPECT_CALL(*_spialert_api, get_events(PAGE_SIZE, 100, no_filter)).WillOnce(Return(events_page(250, 150, 100)));
-	EXPECT_CALL(*_spialert_api, get_events(PAGE_SIZE, 200, no_filter)).WillOnce(Return(events_page(250, 50, 50)));
+	EXPECT_CALL(*_spialert_api, get_events(MAX_EVENTS_LIMIT, 0, no_filter))
+		.WillOnce(Return(events_page(250, 250, 100)));
+	EXPECT_CALL(*_spialert_api, get_events(MAX_EVENTS_LIMIT, 100, no_filter))
+		.WillOnce(Return(events_page(250, 150, 100)));
+	EXPECT_CALL(*_spialert_api, get_events(MAX_EVENTS_LIMIT, 200, no_filter))
+		.WillOnce(Return(events_page(250, 50, 50)));
 
 	const auto listing = _service->list_events(false);
 
@@ -704,7 +725,8 @@ TEST_F(SpialertServiceTests, ListEventsReadsEveryPage)
 
 TEST_F(SpialertServiceTests, ListEventsPendingAsksOnlyEventsWithoutImage)
 {
-	EXPECT_CALL(*_spialert_api, get_events(PAGE_SIZE, 0, std::optional(false))).WillOnce(Return(events_page(1, 7, 1)));
+	EXPECT_CALL(*_spialert_api, get_events(MAX_EVENTS_LIMIT, 0, std::optional(false)))
+		.WillOnce(Return(events_page(1, 7, 1)));
 
 	const auto listing = _service->list_events(true);
 
@@ -714,7 +736,7 @@ TEST_F(SpialertServiceTests, ListEventsPendingAsksOnlyEventsWithoutImage)
 
 TEST_F(SpialertServiceTests, ListEventsOnEmptyServerMakesOneRequest)
 {
-	EXPECT_CALL(*_spialert_api, get_events(PAGE_SIZE, 0, _)).WillOnce(Return(events_page(0, 0, 0)));
+	EXPECT_CALL(*_spialert_api, get_events(MAX_EVENTS_LIMIT, 0, _)).WillOnce(Return(events_page(0, 0, 0)));
 
 	const auto listing = _service->list_events(false);
 
@@ -726,8 +748,8 @@ TEST_F(SpialertServiceTests, ListEventsOnEmptyServerMakesOneRequest)
 TEST_F(SpialertServiceTests, ListEventsFailsWhenSecondPageFails)
 {
 	testing::InSequence in_order;
-	EXPECT_CALL(*_spialert_api, get_events(PAGE_SIZE, 0, _)).WillOnce(Return(events_page(250, 250, 100)));
-	EXPECT_CALL(*_spialert_api, get_events(PAGE_SIZE, 100, _))
+	EXPECT_CALL(*_spialert_api, get_events(MAX_EVENTS_LIMIT, 0, _)).WillOnce(Return(events_page(250, 250, 100)));
+	EXPECT_CALL(*_spialert_api, get_events(MAX_EVENTS_LIMIT, 100, _))
 		.WillOnce(Return(events_error(500, {"internal_error", "Database is unavailable", {}})));
 
 	const auto listing = _service->list_events(false);
@@ -740,8 +762,8 @@ TEST_F(SpialertServiceTests, ListEventsFailsWhenSecondPageFails)
 TEST_F(SpialertServiceTests, ListEventsStopsOnEmptyPageEvenIfTotalSaysMore)
 {
 	testing::InSequence in_order;
-	EXPECT_CALL(*_spialert_api, get_events(PAGE_SIZE, 0, _)).WillOnce(Return(events_page(300, 300, 100)));
-	EXPECT_CALL(*_spialert_api, get_events(PAGE_SIZE, 100, _)).WillOnce(Return(events_page(300, 0, 0)));
+	EXPECT_CALL(*_spialert_api, get_events(MAX_EVENTS_LIMIT, 0, _)).WillOnce(Return(events_page(300, 300, 100)));
+	EXPECT_CALL(*_spialert_api, get_events(MAX_EVENTS_LIMIT, 100, _)).WillOnce(Return(events_page(300, 0, 0)));
 
 	const auto listing = _service->list_events(false);
 
@@ -752,15 +774,15 @@ TEST_F(SpialertServiceTests, ListEventsStopsOnEmptyPageEvenIfTotalSaysMore)
 
 TEST_F(SpialertServiceTests, ListEventsStopsAtPageLimit)
 {
-	EXPECT_CALL(*_spialert_api, get_events(PAGE_SIZE, _, _))
-		.Times(MAX_PAGES)
+	EXPECT_CALL(*_spialert_api, get_events(MAX_EVENTS_LIMIT, _, _))
+		.Times(MAX_LIST_PAGES)
 		.WillRepeatedly(
 			[](int limit, int offset, std::optional<bool>) { return events_page(5000, 5000 - offset, limit); });
 
 	const auto listing = _service->list_events(false);
 
 	ASSERT_TRUE(listing) << listing.error();
-	EXPECT_EQ(listing->items.size(), static_cast<size_t>(MAX_PAGES * PAGE_SIZE));
+	EXPECT_EQ(listing->items.size(), static_cast<size_t>(MAX_LIST_PAGES * MAX_EVENTS_LIMIT));
 	EXPECT_EQ(listing->total, 5000);
 	EXPECT_TRUE(listing->truncated);
 }
@@ -769,11 +791,44 @@ TEST_F(SpialertServiceTests, ListEventsSkipsEventShiftedToNextPage)
 {
 	// event 151 is created between the requests and shifts event 51 down to the second page
 	testing::InSequence in_order;
-	EXPECT_CALL(*_spialert_api, get_events(PAGE_SIZE, 0, _)).WillOnce(Return(events_page(150, 150, 100)));
-	EXPECT_CALL(*_spialert_api, get_events(PAGE_SIZE, 100, _)).WillOnce(Return(events_page(151, 51, 51)));
+	EXPECT_CALL(*_spialert_api, get_events(MAX_EVENTS_LIMIT, 0, _)).WillOnce(Return(events_page(150, 150, 100)));
+	EXPECT_CALL(*_spialert_api, get_events(MAX_EVENTS_LIMIT, 100, _)).WillOnce(Return(events_page(151, 51, 51)));
 
 	const auto listing = _service->list_events(false);
 
 	ASSERT_TRUE(listing) << listing.error();
 	EXPECT_EQ(event_ids(listing->items), descending_ids(150, 150));
+}
+
+TEST_F(SpialertServiceTests, WaitUntilOnlineAsksServerInMaintenanceAgain)
+{
+	EXPECT_CALL(*_spialert_api, get_status())
+		.WillOnce(Return(status_response(200, false)))
+		.WillOnce(Return(status_response(200, true)));
+	EXPECT_CALL(*_retry_waiter, wait(seconds{1}, RetryReasonEnum::OFFLINE_REASON));
+
+	EXPECT_EQ(_service->wait_until_online(), ServerStateEnum::ONLINE_STATE);
+}
+
+TEST_F(SpialertServiceTests, WaitUntilOnlineGivesUpAfterMaxAttempts)
+{
+	EXPECT_CALL(*_spialert_api, get_status())
+		.Times(MAX_SEND_ATTEMPTS)
+		.WillRepeatedly(Return(status_response(200, false)));
+	testing::InSequence in_order;
+	EXPECT_CALL(*_retry_waiter, wait(seconds{1}, RetryReasonEnum::OFFLINE_REASON));
+	EXPECT_CALL(*_retry_waiter, wait(seconds{2}, RetryReasonEnum::OFFLINE_REASON));
+
+	EXPECT_EQ(_service->wait_until_online(), ServerStateEnum::OFFLINE_STATE);
+}
+
+TEST_F(SpialertServiceTests, WaitUntilOnlineDoesNotWaitAfterError)
+{
+	EXPECT_CALL(*_spialert_api, get_status())
+		.WillOnce(Return(status_response(401, false, {"invalid_api_key", "API key is not valid.", {}})));
+
+	const auto state = _service->wait_until_online();
+
+	ASSERT_FALSE(state);
+	EXPECT_EQ(state.error(), "Server status is unknown: 401 invalid_api_key: API key is not valid.");
 }

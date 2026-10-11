@@ -11,11 +11,10 @@
 
 #define WIDTH 480
 #define HEIGHT 320
-#define MAX_DECODE_PIXELS (24 * 1000 * 1000)
 #define MARK_PART 4
 #define PROBE_PART 10
 #define MARK_CHANNEL 160
-#define BROKEN_PNG_DATA "\x89PNG\r\n\x1a\nbroken"
+#define BROKEN_PNG_DATA PNG_SIGNATURE "broken"
 
 using model::Image;
 using model::WicImageCompressor;

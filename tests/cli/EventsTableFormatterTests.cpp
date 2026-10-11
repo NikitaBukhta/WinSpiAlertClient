@@ -7,8 +7,6 @@
 #include "cli/EventsTableFormatter.h"
 #include "utils/TimeParser.h"
 
-#define FILE_NAME_WIDTH 40
-
 using app::SpialertService;
 using cli::EventsTableFormatter;
 
@@ -87,19 +85,21 @@ TEST(EventsTableFormatterTests, TruncatedListingSaysNotEveryEventIsShown)
 
 	const std::string table = EventsTableFormatter(listing, false).format();
 
-	EXPECT_TRUE(table.ends_with("\nTotal: 2, without image: 1\nOnly the newest 2 of 5000 events are shown\n")) << table;
+	EXPECT_TRUE(
+		table.ends_with("\nTotal: 5000, without image among them: 1\nOnly the newest 2 of 5000 events are shown\n"))
+	    << table;
 }
 
 TEST(EventsTableFormatterTests, LongFileNameIsCutWithAsciiMark)
 {
 	const std::string table = format_file_name(std::string(96, 'a') + ".png");
 
-	EXPECT_TRUE(table.contains(std::string(FILE_NAME_WIDTH - 3, 'a') + "...  2026-10-11")) << table;
+	EXPECT_TRUE(table.contains(std::string(MAX_FILE_NAME_WIDTH - 3, 'a') + "...  2026-10-11")) << table;
 }
 
 TEST(EventsTableFormatterTests, FileNameOfMaxWidthIsKept)
 {
-	const std::string file_name = std::string(FILE_NAME_WIDTH - 4, 'b') + ".png";
+	const std::string file_name = std::string(MAX_FILE_NAME_WIDTH - 4, 'b') + ".png";
 
 	const std::string table = format_file_name(file_name);
 

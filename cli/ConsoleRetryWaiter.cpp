@@ -16,6 +16,9 @@ void ConsoleRetryWaiter::wait(const std::chrono::seconds delay, const RetryReaso
 	case RetryReasonEnum::NETWORK_REASON:
 		std::println(stderr, "Network error, retrying in {} s", delay.count());
 		break;
+	case RetryReasonEnum::OFFLINE_REASON:
+		std::println(stderr, "Server is not online, retrying in {} s", delay.count());
+		break;
 	}
 	std::this_thread::sleep_for(delay);
 }

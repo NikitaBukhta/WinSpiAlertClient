@@ -9,6 +9,7 @@
 #include <windows.h>
 #include <winhttp.h>
 
+#include "api/ApiConstants.h"
 #include "api/SpialertApi.h"
 #include "api/dto/EventObjectDto.h"
 #include "api/dto/EventRequestDto.h"
@@ -18,11 +19,11 @@
 #include "net/IHttpClient.h"
 #include "net/MultipartBuilder.h"
 #include "tests/helpers/RequestBody.h"
+#include "tests/helpers/TestConstants.h"
 
-#define AUTH_HEADERS "X-API-Key: test-key"
+#define AUTH_HEADERS API_KEY_HEADER "test-key"
 #define JSON_HEADERS AUTH_HEADERS "\r\nContent-Type: application/json"
 #define MULTIPART_HEADERS_PREFIX AUTH_HEADERS "\r\nContent-Type: multipart/form-data; boundary="
-#define PNG_IMAGE "\x89PNG\r\n\x1a\nimage"
 #define EVENT_JSON R"({"event_id":42,"event_uid":"uid-0001","event_code":3,"file_name":"a.png","image_uploaded":false})"
 
 using namespace std::chrono;
@@ -375,4 +376,29 @@ TEST_F(SpialertApiTests, PostImageSendsImageBytesWithoutCopy)
 	_api->post_image(image, 42);
 
 	EXPECT_TRUE(image_bytes_passed_as_is) << "the image must be one of the body parts, not copied into a new body";
+}
+
+TEST_F(SpialertApiTests, SuccessWithUnreadableBodyIsAnError)
+{
+	EXPECT_CALL(*_http_client, send_request(_, _, _, _))
+		.WillOnce(Return(http_response(201, "<html><body>201 Created by a proxy</body></html>")));
+
+	const auto response = _api->post_events(make_event());
+
+	EXPECT_FALSE(response.is_success());
+	EXPECT_EQ(response.status_code, 201);
+	ASSERT_TRUE(response.error.has_value());
+	EXPECT_EQ(response.error->describe(), "HTTP 201, but the response body cannot be read");
+}
+
+TEST_F(SpialertApiTests, CreatedEventWithoutIdIsAnError)
+{
+	EXPECT_CALL(*_http_client, send_request(_, _, _, _))
+		.WillOnce(Return(http_response(201, R"({"event_code":3,"file_name":"a.png"})")));
+
+	const auto response = _api->post_events(make_event());
+
+	EXPECT_FALSE(response.is_success());
+	ASSERT_TRUE(response.error.has_value());
+	EXPECT_EQ(response.error->source, api::ApiError::SourceEnum::RESPONSE_SOURCE);
 }

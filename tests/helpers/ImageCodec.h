@@ -14,11 +14,9 @@
 #include <wincodec.h>
 #include <wrl/client.h>
 
+#include "model/ImageConstants.h"
 #include "utils/ComScope.h"
 
-#define EXIF_ORIENTATION_QUERY L"/app1/ifd/{ushort=274}"
-#define JPEG_QUALITY_OPTION L"ImageQuality"
-#define FIRST_FRAME 0
 #define NOISE_SEED 7
 #define BGRA_BYTES 4
 // a failed WIC call throws with its own text, so the message always matches the code

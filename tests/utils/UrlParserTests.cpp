@@ -1,11 +1,9 @@
 #include <gtest/gtest.h>
 
+#include "tests/helpers/TestConstants.h"
 #include "utils/UrlParser.h"
 
 using utils::UrlParser;
-
-#define HTTPS_DEFAULT_PORT 443
-#define HTTP_DEFAULT_PORT 80
 
 TEST(UrlParserTests, ParsesUrlWithoutPort)
 {

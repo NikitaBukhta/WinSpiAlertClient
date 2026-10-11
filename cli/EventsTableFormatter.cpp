@@ -8,7 +8,6 @@
 
 #define COLUMN_GAP "  "
 #define RULE_CHAR '-'
-#define MAX_FILE_NAME_WIDTH 40
 #define TRUNCATION_MARK "..."
 
 namespace cli
@@ -62,12 +61,19 @@ std::string EventsTableFormatter::format_rule() const
 
 std::string EventsTableFormatter::format_summary() const
 {
-	std::string summary = _pending
-	                          ? std::format("\nWithout image: {}\n", _rows.size())
-	                          : std::format("\nTotal: {}, without image: {}\n", _rows.size(), _without_image_count);
-	if (_truncated)
-		summary += std::format("Only the newest {} of {} events are shown\n", _rows.size(), _total);
-	return summary;
+	if (_pending)
+		return std::format("\nWithout image: {}\n", _total) + format_truncation();
+
+	const std::string without_image = _truncated ? std::format("without image among them: {}", _without_image_count)
+	                                             : std::format("without image: {}", _without_image_count);
+	return std::format("\nTotal: {}, {}\n", _total, without_image) + format_truncation();
+}
+
+std::string EventsTableFormatter::format_truncation() const
+{
+	if (!_truncated)
+		return {};
+	return std::format("Only the newest {} of {} events are shown\n", _rows.size(), _total);
 }
 
 EventsTableFormatter::Row EventsTableFormatter::header_row()

@@ -41,7 +41,11 @@ public:
 	                std::unique_ptr<IRetryWaiter> retry_waiter);
 
 	[[nodiscard]] std::expected<ServerStateEnum, std::string> is_online() const;
+	[[nodiscard]] std::expected<ServerStateEnum, std::string> wait_until_online() const;
 	std::expected<void, std::string> send_img(const std::filesystem::path& image_path);
+	// uploads into an existing event, e.g. after send created it but the upload failed
+	[[nodiscard]] std::expected<void, std::string> upload_img(int event_id,
+	                                                          const std::filesystem::path& image_path) const;
 	[[nodiscard]] std::expected<EventsListing, std::string> list_events(bool pending) const;
 
 private:
@@ -50,7 +54,6 @@ private:
 	{
 		ResponseType response;
 		bool resent{};
-		std::string give_up_reason;
 	};
 
 	[[nodiscard]] std::expected<model::Image, std::string> load_image(const std::filesystem::path& image_path) const;

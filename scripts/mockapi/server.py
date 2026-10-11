@@ -8,7 +8,7 @@ from urllib.parse import parse_qs, urlsplit
 
 from .config import API_PREFIX, CERT_PEM, CONTROL_PREFIX, KEY_PEM, MULTIPART_OVERHEAD
 from .control import handle_control
-from .endpoints import ApiRequest, handle_api_request
+from .endpoints import ApiRequest, handle_api_request, status_payload
 from .errors import ApiError
 
 HTML_ERROR_BODY = b"<html><body><h1>502 Bad Gateway</h1></body></html>"
@@ -95,6 +95,9 @@ class RequestHandler(BaseHTTPRequestHandler):
         elif fault.kind == "truncate":
             self.send_truncated(TRUNCATED_BODY)
             self.log_result("truncated", notes)
+        elif fault.kind == "maintenance":
+            self.send_json(HTTPStatus.OK, status_payload("maintenance"))
+            self.log_result(HTTPStatus.OK, notes)
 
     def send_truncated(self, body):
         self.close_connection = True

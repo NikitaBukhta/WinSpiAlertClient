@@ -15,12 +15,14 @@ struct CommandLine
 	{
 		STATUS_COMMAND,
 		SEND_COMMAND,
+		UPLOAD_COMMAND,
 		LIST_COMMAND,
 		HELP_COMMAND,
 	};
 
 	CommandEnum command{CommandEnum::HELP_COMMAND};
 	std::filesystem::path image_path;
+	int event_id{};
 	bool pending{};
 	ConfigSource source;
 };

@@ -4,9 +4,9 @@
 
 #include "model/Image.h"
 #include "tests/helpers/TempFile.h"
+#include "tests/helpers/TestConstants.h"
 
-#define PNG_DATA "\x89PNG\r\n\x1a\nimage"
-#define JPEG_DATA "\xff\xd8\xff\xe0image"
+#define JPEG_DATA JPEG_SIGNATURE "\xe0image"
 
 #define MAX_LOAD_SIZE 1024
 
@@ -53,7 +53,7 @@ TEST(ImageTests, MissingFileIsNotLoaded)
 
 TEST(ImageTests, FormatOfSupportedFormats)
 {
-	EXPECT_EQ(Image("a.png", PNG_DATA).format(), Image::FormatEnum::PNG_FORMAT);
+	EXPECT_EQ(Image("a.png", PNG_IMAGE).format(), Image::FormatEnum::PNG_FORMAT);
 	EXPECT_EQ(Image("a.jpg", JPEG_DATA).format(), Image::FormatEnum::JPEG_FORMAT);
 	EXPECT_EQ(Image("a.jpeg", JPEG_DATA).format(), Image::FormatEnum::JPEG_FORMAT);
 }
@@ -62,12 +62,12 @@ TEST(ImageTests, InvalidImageHasNoFormat)
 {
 	EXPECT_EQ(Image("a.gif", "GIF89a").format(), std::nullopt);
 	EXPECT_EQ(Image("a.png", JPEG_DATA).format(), std::nullopt);
-	EXPECT_EQ(Image("capture 0001.png", PNG_DATA).format(), std::nullopt);
+	EXPECT_EQ(Image("capture 0001.png", PNG_IMAGE).format(), std::nullopt);
 }
 
 TEST(ImageTests, ContentTypeOfSupportedFormats)
 {
-	EXPECT_EQ(Image("a.png", PNG_DATA).content_type(), "image/png");
+	EXPECT_EQ(Image("a.png", PNG_IMAGE).content_type(), "image/png");
 	EXPECT_EQ(Image("a.jpg", JPEG_DATA).content_type(), "image/jpeg");
 	EXPECT_EQ(Image("a.jpeg", JPEG_DATA).content_type(), "image/jpeg");
 }
@@ -75,35 +75,35 @@ TEST(ImageTests, ContentTypeOfSupportedFormats)
 TEST(ImageTests, UnsupportedExtensionHasNoContentType)
 {
 	EXPECT_FALSE(Image("a.gif", "GIF89a").content_type().has_value());
-	EXPECT_FALSE(Image("a.bmp", PNG_DATA).content_type().has_value());
-	EXPECT_FALSE(Image("png", PNG_DATA).content_type().has_value());
-	EXPECT_FALSE(Image("a.png.txt", PNG_DATA).content_type().has_value());
+	EXPECT_FALSE(Image("a.bmp", PNG_IMAGE).content_type().has_value());
+	EXPECT_FALSE(Image("png", PNG_IMAGE).content_type().has_value());
+	EXPECT_FALSE(Image("a.png.txt", PNG_IMAGE).content_type().has_value());
 }
 
 TEST(ImageTests, UpperCaseExtensionIsNotSupported)
 {
 	// the server accepts lower case extensions only
-	EXPECT_FALSE(Image("a.PNG", PNG_DATA).content_type().has_value());
+	EXPECT_FALSE(Image("a.PNG", PNG_IMAGE).content_type().has_value());
 }
 
 TEST(ImageTests, ContentNotMatchingExtensionHasNoContentType)
 {
 	EXPECT_FALSE(Image("a.png", JPEG_DATA).content_type().has_value());
-	EXPECT_FALSE(Image("a.jpg", PNG_DATA).content_type().has_value());
+	EXPECT_FALSE(Image("a.jpg", PNG_IMAGE).content_type().has_value());
 	EXPECT_FALSE(Image("a.png", "").content_type().has_value());
 	EXPECT_FALSE(Image("a.png", "\x89PNG").content_type().has_value());
 }
 
 TEST(ImageTests, ValidImageHasNoValidationError)
 {
-	EXPECT_FALSE(Image("a.png", PNG_DATA).validation_error().has_value());
+	EXPECT_FALSE(Image("a.png", PNG_IMAGE).validation_error().has_value());
 	EXPECT_FALSE(Image("a.jpeg", JPEG_DATA).validation_error().has_value());
 }
 
 TEST(ImageTests, ValidationErrorNamesSupportedExtensions)
 {
 	EXPECT_EQ(Image("a.gif", "GIF89a").validation_error(), "a.gif: unsupported extension, expected .png, .jpg, .jpeg");
-	EXPECT_EQ(Image(".png", PNG_DATA).validation_error(), ".png: unsupported extension, expected .png, .jpg, .jpeg");
+	EXPECT_EQ(Image(".png", PNG_IMAGE).validation_error(), ".png: unsupported extension, expected .png, .jpg, .jpeg");
 }
 
 TEST(ImageTests, ValidationErrorTellsContentMismatch)
@@ -115,7 +115,7 @@ TEST(ImageTests, LoadsPathOutsideTheAnsiCodePage)
 {
 	// file name in UTF-8: Cyrillic and CJK characters, which no single ANSI code page holds together
 	const std::u8string utf8_name = u8"фото_写真.png";
-	const TempFile file(std::filesystem::path(utf8_name), PNG_DATA);
+	const TempFile file(std::filesystem::path(utf8_name), PNG_IMAGE);
 
 	const auto image = Image::load(file.path(), MAX_LOAD_SIZE);
 
@@ -126,21 +126,21 @@ TEST(ImageTests, LoadsPathOutsideTheAnsiCodePage)
 
 TEST(ImageTests, NameWithAllowedCharactersIsValid)
 {
-	EXPECT_EQ(Image("capture_0001-A.png", PNG_DATA).content_type(), "image/png");
-	EXPECT_EQ(Image(std::string(100, 'a') + ".png", PNG_DATA).content_type(), "image/png");
+	EXPECT_EQ(Image("capture_0001-A.png", PNG_IMAGE).content_type(), "image/png");
+	EXPECT_EQ(Image(std::string(100, 'a') + ".png", PNG_IMAGE).content_type(), "image/png");
 }
 
 TEST(ImageTests, NameOutsideServerRulesIsRejected)
 {
-	EXPECT_FALSE(Image("class-diagram.drawio.png", PNG_DATA).content_type().has_value()) << "dot inside the name";
-	EXPECT_FALSE(Image("capture 0001.png", PNG_DATA).content_type().has_value()) << "space";
-	EXPECT_FALSE(Image("capture+1.png", PNG_DATA).content_type().has_value());
-	EXPECT_FALSE(Image(std::string(101, 'a') + ".png", PNG_DATA).content_type().has_value()) << "101 characters";
+	EXPECT_FALSE(Image("class-diagram.drawio.png", PNG_IMAGE).content_type().has_value()) << "dot inside the name";
+	EXPECT_FALSE(Image("capture 0001.png", PNG_IMAGE).content_type().has_value()) << "space";
+	EXPECT_FALSE(Image("capture+1.png", PNG_IMAGE).content_type().has_value());
+	EXPECT_FALSE(Image(std::string(101, 'a') + ".png", PNG_IMAGE).content_type().has_value()) << "101 characters";
 }
 
 TEST(ImageTests, ValidationErrorExplainsNameRules)
 {
-	EXPECT_EQ(Image("class-diagram.drawio.png", PNG_DATA).validation_error(),
+	EXPECT_EQ(Image("class-diagram.drawio.png", PNG_IMAGE).validation_error(),
 	          "class-diagram.drawio.png: the name before the extension must be 1-100 characters from A-Z a-z 0-9 _ -");
 }
 

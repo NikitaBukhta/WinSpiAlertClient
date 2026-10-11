@@ -28,6 +28,8 @@ private:
 	void create_service(const ClientConfig& config);
 	[[nodiscard]] int run_status() const;
 	[[nodiscard]] int run_send(const std::filesystem::path& image_path) const;
+	[[nodiscard]] int run_upload(int event_id, const std::filesystem::path& image_path) const;
+	[[nodiscard]] bool wait_until_online() const;
 	[[nodiscard]] int run_list(bool pending) const;
 	static int fail(const std::string& message);
 	static void print_help(FILE* stream);

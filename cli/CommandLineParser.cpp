@@ -1,6 +1,8 @@
 #include "CommandLineParser.h"
 
+#include <algorithm>
 #include <array>
+#include <charconv>
 #include <filesystem>
 #include <format>
 
@@ -124,8 +126,9 @@ std::expected<void, std::string> CommandLineParser::assign_once(std::optional<T>
 
 std::expected<std::wstring_view, std::string> CommandLineParser::take_value(std::string_view option)
 {
+	// NOTE: a value may start with '-' (an API key can), only a known option ends the value
 	const std::wstring_view next = _position < _args.size() ? _args[_position] : L"";
-	const bool is_value = !next.empty() && !is_option(next);
+	const bool is_value = !next.empty() && !is_known_option(next);
 	if (!is_value)
 		return std::unexpected(std::format("{} requires a value", option));
 
@@ -147,17 +150,25 @@ std::expected<void, std::string> CommandLineParser::parse_command()
 		return count_checked;
 
 	_command_line.command = info->command;
-	if (!info->argument.empty())
-		_command_line.image_path = _positionals[1];
+	// NOTE: the image is the last argument of both send and upload
+	if (info->argument_count > 0)
+		_command_line.image_path = _positionals.back();
+	if (info->command != CommandLine::CommandEnum::UPLOAD_COMMAND)
+		return {};
+
+	const auto event_id = parse_event_id(_positionals[1]);
+	if (!event_id)
+		return std::unexpected(event_id.error());
+	_command_line.event_id = *event_id;
 	return {};
 }
 
 std::expected<void, std::string> CommandLineParser::check_argument_count(const CommandInfo& info) const
 {
-	const size_t expected_count = info.argument.empty() ? 0 : 1;
+	const size_t expected_count = info.argument_count;
 	const size_t given_count = _positionals.size() - 1;
 	if (given_count < expected_count)
-		return std::unexpected(std::format("{} requires {}", StringUtils::to_utf8(info.name), info.argument));
+		return std::unexpected(std::format("{} requires {}", StringUtils::to_utf8(info.name), info.arguments));
 	if (given_count > expected_count)
 		return std::unexpected(
 			std::format("unexpected argument '{}'", StringUtils::to_utf8(_positionals[expected_count + 1])));
@@ -176,10 +187,17 @@ std::expected<void, std::string> CommandLineParser::check_pending() const
 const CommandLineParser::CommandInfo* CommandLineParser::find_command(std::wstring_view name)
 {
 	static constexpr auto COMMANDS = std::to_array<CommandInfo>({
-		{.name = L"status", .command = CommandLine::CommandEnum::STATUS_COMMAND, .argument = ""},
-		{.name = L"send", .command = CommandLine::CommandEnum::SEND_COMMAND, .argument = "<image>"},
-		{.name = L"list", .command = CommandLine::CommandEnum::LIST_COMMAND, .argument = ""},
-		{.name = L"help", .command = CommandLine::CommandEnum::HELP_COMMAND, .argument = ""},
+		{.name = L"status", .command = CommandLine::CommandEnum::STATUS_COMMAND, .arguments = "", .argument_count = 0},
+		{.name = L"send",
+		 .command = CommandLine::CommandEnum::SEND_COMMAND,
+		 .arguments = "<image>",
+		 .argument_count = 1},
+		{.name = L"upload",
+		 .command = CommandLine::CommandEnum::UPLOAD_COMMAND,
+		 .arguments = "<event_id> <image>",
+		 .argument_count = 2},
+		{.name = L"list", .command = CommandLine::CommandEnum::LIST_COMMAND, .arguments = "", .argument_count = 0},
+		{.name = L"help", .command = CommandLine::CommandEnum::HELP_COMMAND, .arguments = "", .argument_count = 0},
 	});
 
 	for (const CommandInfo& info : COMMANDS)
@@ -188,6 +206,24 @@ const CommandLineParser::CommandInfo* CommandLineParser::find_command(std::wstri
 			return &info;
 	}
 	return nullptr;
+}
+
+std::expected<int, std::string> CommandLineParser::parse_event_id(std::wstring_view arg)
+{
+	const std::string text = StringUtils::to_utf8(arg);
+	int event_id{};
+	const auto [end, error] = std::from_chars(text.data(), text.data() + text.size(), event_id);
+	const bool is_positive_number = error == std::errc{} && end == text.data() + text.size() && event_id > 0;
+	if (!is_positive_number)
+		return std::unexpected(std::format("event_id must be a positive integer, got '{}'", text));
+	return event_id;
+}
+
+bool CommandLineParser::is_known_option(std::wstring_view arg)
+{
+	static constexpr auto OPTIONS = std::to_array<std::string_view>(
+		{OPTION_CONFIG, OPTION_URL, OPTION_KEY, OPTION_PENDING, OPTION_HELP, OPTION_HELP_SHORT, END_OF_OPTIONS});
+	return std::ranges::contains(OPTIONS, StringUtils::to_utf8(arg));
 }
 
 bool CommandLineParser::is_option(std::wstring_view arg)

@@ -106,10 +106,13 @@ TEST(EventObjectDtoTests, MissingFieldsStayDefault)
 	EXPECT_EQ(dto.image_size, 0u);
 }
 
-TEST(EventObjectDtoTests, EmptyBodyGivesDefaultDto)
+TEST(EventObjectDtoTests, EmptyBodyIsNotJson)
 {
-	const auto dto = DtoParser::parse<EventObjectMapper>("");
+	EXPECT_EQ(DtoParser::try_parse<EventObjectMapper>(""), std::nullopt);
+}
 
-	EXPECT_EQ(dto.event_id, 0);
-	EXPECT_TRUE(dto.event_uid.empty());
+TEST(EventObjectDtoTests, InvalidJsonIsNotAnEvent)
+{
+	EXPECT_EQ(DtoParser::try_parse<EventObjectMapper>(R"({"event_id":42,"file_name":)"), std::nullopt);
+	EXPECT_EQ(DtoParser::try_parse<EventObjectMapper>("<html>Bad Gateway</html>"), std::nullopt);
 }

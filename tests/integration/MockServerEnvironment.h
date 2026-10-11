@@ -8,11 +8,11 @@
 
 #include "net/WinHttpClient.h"
 #include "tests/helpers/MockServerProcess.h"
+#include "tests/helpers/TestConstants.h"
 
-#define MOCK_HOST "127.0.0.1"
+#define MOCK_HOST LOCAL_HOST
 #define MOCK_API_KEY "integration-key"
 #define MOCK_API_BASE_PATH "/api/v1"
-#define TEST_USER_AGENT "WinSpiAlertClient-tests/1.0"
 
 namespace integration
 {

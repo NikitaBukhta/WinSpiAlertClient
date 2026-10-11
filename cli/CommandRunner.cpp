@@ -9,10 +9,10 @@
 #include "EventsTableFormatter.h"
 #include "api/SpialertApi.h"
 #include "model/WicImageCompressorFactory.h"
+#include "net/NetworkConfig.h"
 #include "net/WinHttpClient.h"
 #include "utils/FileUtils.h"
 
-#define USER_AGENT "WinSpiAlertClient/1.0"
 #define HELP_HINT "See 'client.exe help'."
 
 namespace cli
@@ -61,6 +61,8 @@ int CommandRunner::execute(const CommandLine& command_line) const
 		return run_status();
 	case CommandLine::CommandEnum::SEND_COMMAND:
 		return run_send(command_line.image_path);
+	case CommandLine::CommandEnum::UPLOAD_COMMAND:
+		return run_upload(command_line.event_id, command_line.image_path);
 	case CommandLine::CommandEnum::LIST_COMMAND:
 		return run_list(command_line.pending);
 	// NOTE: help is handled in run_command, before the config is loaded. No default: a new command must be added here
@@ -99,20 +101,26 @@ int CommandRunner::run_status() const
 	return EXIT_FAILURE;
 }
 
-int CommandRunner::run_send(const std::filesystem::path& image_path) const
+bool CommandRunner::wait_until_online() const
 {
-	const auto state = _service->is_online();
+	const auto state = _service->wait_until_online();
 	if (!state)
 	{
 		std::println(stderr, "{}", state.error());
-		return EXIT_FAILURE;
+		return false;
 	}
-	// TODO: wait for an offline server with the backoff of send_with_retry instead of failing at once
 	if (*state != app::SpialertService::ServerStateEnum::ONLINE_STATE)
 	{
 		std::println(stderr, "Server is not online");
-		return EXIT_FAILURE;
+		return false;
 	}
+	return true;
+}
+
+int CommandRunner::run_send(const std::filesystem::path& image_path) const
+{
+	if (!wait_until_online())
+		return EXIT_FAILURE;
 
 	const std::string image_name = utils::FileUtils::to_utf8(image_path);
 	const auto sent = _service->send_img(image_path);
@@ -123,6 +131,23 @@ int CommandRunner::run_send(const std::filesystem::path& image_path) const
 	}
 
 	std::println("Sent {}", image_name);
+	return EXIT_SUCCESS;
+}
+
+int CommandRunner::run_upload(const int event_id, const std::filesystem::path& image_path) const
+{
+	if (!wait_until_online())
+		return EXIT_FAILURE;
+
+	const std::string image_name = utils::FileUtils::to_utf8(image_path);
+	const auto uploaded = _service->upload_img(event_id, image_path);
+	if (!uploaded)
+	{
+		std::println(stderr, "Failed to upload {} to event {}: {}", image_name, event_id, uploaded.error());
+		return EXIT_FAILURE;
+	}
+
+	std::println("Uploaded {} to event {}", image_name, event_id);
 	return EXIT_SUCCESS;
 }
 
@@ -153,6 +178,9 @@ void CommandRunner::print_help(FILE* stream)
 Commands:
   status              check that the server is online
   send <image>        create an event and upload a PNG or JPEG image to it
+  upload <event_id> <image>
+                      upload an image into an existing event, e.g. one that
+                      list --pending shows; the file name must be the event's
   list [--pending]    list events; --pending: only events without an image
   help                show this help
 

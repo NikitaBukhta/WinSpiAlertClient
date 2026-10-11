@@ -2,16 +2,11 @@
 
 #include <array>
 
+#include "NetworkConfig.h"
 #include "utils/StringUtils.h"
 
 using utils::StringUtils;
 
-// TODO: move the timeouts to secret/config.json, pass to WinHttpClient
-#define RESOLVE_TIMEOUT_MS 10'000
-#define CONNECT_TIMEOUT_MS 10'000
-#define SEND_TIMEOUT_MS 30'000
-#define RECEIVE_TIMEOUT_MS 30'000
-#define READ_CHUNK_SIZE (8 * 1024)
 #define ERROR_TEXT_MAX_LEN 512
 #define RETRY_AFTER_HEADER L"Retry-After"
 

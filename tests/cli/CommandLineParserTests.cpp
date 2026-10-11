@@ -129,15 +129,44 @@ TEST_F(CommandLineParserTests, OnlyOptionsAreError)
 
 TEST_F(CommandLineParserTests, UnknownCommandIsError)
 {
-	const auto command_line = parse({L"upload"});
+	const auto command_line = parse({L"delete"});
 
 	ASSERT_FALSE(command_line.has_value());
-	EXPECT_EQ(command_line.error(), "unknown command 'upload'");
+	EXPECT_EQ(command_line.error(), "unknown command 'delete'");
 }
 
 TEST_F(CommandLineParserTests, CommandsAreCaseSensitive)
 {
 	EXPECT_FALSE(parse({L"Status"}).has_value());
+}
+
+TEST_F(CommandLineParserTests, ParsesUploadWithEventIdAndImagePath)
+{
+	const auto command_line = parse({L"upload", L"42", L"C:\\images\\capture_0001.png"});
+
+	ASSERT_TRUE(command_line.has_value()) << command_line.error();
+	EXPECT_EQ(command_line->command, CommandEnum::UPLOAD_COMMAND);
+	EXPECT_EQ(command_line->event_id, 42);
+	EXPECT_EQ(command_line->image_path, std::filesystem::path(L"C:\\images\\capture_0001.png"));
+}
+
+TEST_F(CommandLineParserTests, UploadWithoutImageIsError)
+{
+	const auto command_line = parse({L"upload", L"42"});
+
+	ASSERT_FALSE(command_line.has_value());
+	EXPECT_EQ(command_line.error(), "upload requires <event_id> <image>");
+}
+
+TEST_F(CommandLineParserTests, UploadEventIdMustBeAPositiveInteger)
+{
+	for (const wchar_t* event_id : {L"0", L"abc", L"42x", L"1.5", L"99999999999"})
+	{
+		const auto command_line = parse({L"upload", event_id, L"a.png"});
+
+		ASSERT_FALSE(command_line.has_value()) << event_id;
+		EXPECT_TRUE(command_line.error().starts_with("event_id must be a positive integer")) << command_line.error();
+	}
 }
 
 TEST_F(CommandLineParserTests, SendWithoutImageIsError)
@@ -202,7 +231,7 @@ TEST_F(CommandLineParserTests, RepeatedOptionIsError)
 TEST_F(CommandLineParserTests, ErrorsNeverContainKey)
 {
 	const auto repeated = parse({L"--key", L"secret-key-1", L"--key", L"secret-key-2", L"status"});
-	const auto unknown = parse({L"--key", L"secret-key-1", L"upload"});
+	const auto unknown = parse({L"--key", L"secret-key-1", L"delete"});
 
 	ASSERT_FALSE(repeated.has_value());
 	ASSERT_FALSE(unknown.has_value());
@@ -240,6 +269,15 @@ TEST_F(CommandLineParserTests, OptionIsNotTakenAsValueOfAnotherOption)
 
 	ASSERT_FALSE(command_line.has_value());
 	EXPECT_EQ(command_line.error(), "--config requires a value");
+}
+
+TEST_F(CommandLineParserTests, OptionValueMayStartWithDash)
+{
+	const auto command_line = parse({L"--key", L"-Ab3x_key", L"--config", L"-cfg.json", L"status"});
+
+	ASSERT_TRUE(command_line.has_value()) << command_line.error();
+	EXPECT_EQ(command_line->source.key, "-Ab3x_key");
+	EXPECT_EQ(command_line->source.config_path, std::filesystem::path(L"-cfg.json"));
 }
 
 TEST_F(CommandLineParserTests, ImageStartingWithDashNeedsEndOfOptions)

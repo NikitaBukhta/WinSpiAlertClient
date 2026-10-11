@@ -64,12 +64,9 @@ TEST(StatusDtoTests, MissingFieldsStayDefault)
 	EXPECT_EQ(dto.server_time, utils::time_point{});
 }
 
-TEST(StatusDtoTests, EmptyBodyGivesDefaultDto)
+TEST(StatusDtoTests, EmptyBodyIsNotJson)
 {
-	const auto dto = DtoParser::parse<StatusMapper>("");
-
-	EXPECT_FALSE(dto.status);
-	EXPECT_TRUE(dto.api_version.empty());
+	EXPECT_EQ(DtoParser::try_parse<StatusMapper>(""), std::nullopt);
 }
 
 TEST(StatusDtoTests, ParsesEscapedString)
@@ -77,4 +74,9 @@ TEST(StatusDtoTests, ParsesEscapedString)
 	const auto dto = DtoParser::parse<StatusMapper>(R"({"candidate":"Jane \"JD\" Doe"})");
 
 	EXPECT_EQ(dto.candidate, R"(Jane "JD" Doe)");
+}
+
+TEST(StatusDtoTests, InvalidJsonIsNotAStatus)
+{
+	EXPECT_EQ(DtoParser::try_parse<StatusMapper>("online"), std::nullopt);
 }

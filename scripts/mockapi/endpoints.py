@@ -48,8 +48,12 @@ def check_api_key(request, expected_key):
 
 
 def get_status(state, request):
-    return HTTPStatus.OK, {
-        "status": "online",
+    return HTTPStatus.OK, status_payload("online")
+
+
+def status_payload(status):
+    return {
+        "status": status,
         "api_version": "1.0",
         "server_time": iso_now(),
         "candidate": "Mock Candidate",

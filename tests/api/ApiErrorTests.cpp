@@ -88,3 +88,8 @@ TEST(ApiErrorTests, LocalErrorShowsItsMessage)
 	EXPECT_EQ(error.source, ApiError::SourceEnum::LOCAL_SOURCE);
 	EXPECT_EQ(error.describe(), "Cannot create a multipart boundary");
 }
+
+TEST(ApiErrorTests, UnreadableResponseShowsStatusCode)
+{
+	EXPECT_EQ(ApiError::unreadable_response(201).describe(), "HTTP 201, but the response body cannot be read");
+}

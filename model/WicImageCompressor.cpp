@@ -1,15 +1,10 @@
 #include "WicImageCompressor.h"
+#include "ImageConstants.h"
 
 #include <algorithm>
+#include <cmath>
 
 #include <propkey.h>
-
-#define EXIF_ORIENTATION_QUERY L"/app1/ifd/{ushort=274}"
-#define JPEG_QUALITY_OPTION L"ImageQuality"
-#define FIRST_FRAME 0
-// TODO: move to secret/config.json
-#define MAX_DECODE_PIXELS (24.0 * 1000 * 1000)
-#define MAX_SOURCE_PIXELS (400.0 * 1000 * 1000)
 
 namespace model
 {

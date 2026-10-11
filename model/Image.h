@@ -8,6 +8,8 @@
 #include <string>
 #include <string_view>
 
+#include "ImageConstants.h"
+
 namespace model
 {
 
@@ -37,7 +39,7 @@ private:
 		FormatEnum format;
 		std::string_view extension;
 		std::string_view content_type;
-		std::string_view signature; // NOTE: https://en.wikipedia.org/wiki/List_of_file_signatures
+		std::string_view signature;
 	};
 
 	[[nodiscard]] const FormatInfo* find_format() const;
@@ -51,9 +53,9 @@ private:
 	std::string _data;
 
 	static constexpr auto SUPPORTED_FORMATS = std::to_array<FormatInfo>({
-		{FormatEnum::PNG_FORMAT, ".png", "image/png", "\x89PNG\r\n\x1a\n"},
-		{FormatEnum::JPEG_FORMAT, ".jpg", "image/jpeg", "\xff\xd8\xff"},
-		{FormatEnum::JPEG_FORMAT, ".jpeg", "image/jpeg", "\xff\xd8\xff"},
+		{FormatEnum::PNG_FORMAT, ".png", "image/png", PNG_SIGNATURE},
+		{FormatEnum::JPEG_FORMAT, ".jpg", "image/jpeg", JPEG_SIGNATURE},
+		{FormatEnum::JPEG_FORMAT, ".jpeg", "image/jpeg", JPEG_SIGNATURE},
 	});
 };
 } // namespace model

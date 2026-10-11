@@ -24,7 +24,8 @@ private:
 	{
 		std::wstring_view name;
 		CommandLine::CommandEnum command;
-		std::string_view argument;
+		std::string_view arguments; // for the error message, e.g. "<event_id> <image>"
+		size_t argument_count;
 	};
 
 	[[nodiscard]] bool has_help_option() const;
@@ -37,7 +38,9 @@ private:
 	[[nodiscard]] std::expected<void, std::string> check_argument_count(const CommandInfo& info) const;
 	[[nodiscard]] std::expected<void, std::string> check_pending() const;
 	static const CommandInfo* find_command(std::wstring_view name);
+	static std::expected<int, std::string> parse_event_id(std::wstring_view arg);
 	static bool is_option(std::wstring_view arg);
+	static bool is_known_option(std::wstring_view arg);
 	static bool is_end_of_options(std::wstring_view arg);
 
 	template <typename T>

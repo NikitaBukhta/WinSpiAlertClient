@@ -5,13 +5,11 @@
 
 #include "model/Image.h"
 #include "model/ImageSizePredictor.h"
+#include "tests/helpers/TestConstants.h"
 
 #define KB 1000
 #define MAX_SIZE (5 * KB)
-#define LARGE_SIDE 4000
 #define ALL_PIXELS 1.0
-#define JPEG_SIGNATURE "\xff\xd8\xff"
-#define PNG_SIGNATURE "\x89PNG\r\n\x1a\n"
 
 using model::Image;
 using model::ImageSizePredictor;

@@ -5,32 +5,18 @@
 #include <ranges>
 #include <unordered_set>
 
+#include "ServiceConstants.h"
+#include "api/ApiConstants.h"
 #include "api/dto/EventObjectDto.h"
 #include "api/dto/EventRequestDto.h"
 #include "api/dto/StatusDto.h"
 #include "model/Image.h"
 #include "model/ImageSizePredictor.h"
+#include "net/NetworkConfig.h"
 #include "utils/FileUtils.h"
 #include "utils/UuidGenerator.h"
 
-#define MIN_EVENT_CODE 1
-#define MAX_EVENT_CODE 10
-// TODO: move to secret/config.json, pass to SpialertService
-#define MAX_SEND_ATTEMPTS 3
-// TODO: move to secret/config.json, pass to SpialertService
-#define NETWORK_BACKOFF_BASE std::chrono::seconds{1}
-// TODO: move to secret/config.json, pass to SpialertService
-#define DEFAULT_RETRY_AFTER std::chrono::seconds{5}
-// NOTE: the server limit is 60 requests per minute, a longer wait means something else is wrong
-// TODO: move to secret/config.json, pass to SpialertService
-#define MAX_RETRY_AFTER std::chrono::seconds{60}
-#define COMPRESSION_HEADROOM (20 * 1024 * 1024)
 #define MAX_IMAGE_READ_SIZE (MAX_IMAGE_SIZE + COMPRESSION_HEADROOM)
-// NOTE: the largest limit the server accepts for GET /events
-#define EVENTS_PAGE_SIZE 100
-// NOTE: every page counts against the limit of 60 requests per minute
-// TODO: move to secret/config.json, pass to SpialertService
-#define MAX_LIST_PAGES 20
 #define HTTP_CONFLICT 409
 #define HTTP_TOO_MANY_REQUESTS 429
 
@@ -54,6 +40,22 @@ std::expected<SpialertService::ServerStateEnum, std::string> SpialertService::is
 	return status.response.dto.status ? ServerStateEnum::ONLINE_STATE : ServerStateEnum::OFFLINE_STATE;
 }
 
+// NOTE: a server in maintenance may come back soon, so it is asked again with the network backoff
+std::expected<SpialertService::ServerStateEnum, std::string> SpialertService::wait_until_online() const
+{
+	auto state = is_online();
+	for (int attempt = 1; attempt < MAX_SEND_ATTEMPTS; ++attempt)
+	{
+		const bool is_offline = state && *state == ServerStateEnum::OFFLINE_STATE;
+		if (!is_offline)
+			break;
+
+		_retry_waiter->wait(network_backoff(attempt), IRetryWaiter::RetryReasonEnum::OFFLINE_REASON);
+		state = is_online();
+	}
+	return state;
+}
+
 std::expected<void, std::string> SpialertService::send_img(const std::filesystem::path& image_path)
 {
 	// NOTE: the image is checked first, or the server keeps an event without an image
@@ -66,6 +68,16 @@ std::expected<void, std::string> SpialertService::send_img(const std::filesystem
 		return std::unexpected(event.error());
 
 	return upload_image(*image, event->event_id);
+}
+
+std::expected<void, std::string> SpialertService::upload_img(const int event_id,
+                                                             const std::filesystem::path& image_path) const
+{
+	const auto image = load_image(image_path);
+	if (!image)
+		return std::unexpected(image.error());
+
+	return upload_image(*image, event_id);
 }
 
 std::expected<SpialertService::EventsListing, std::string> SpialertService::list_events(const bool pending) const
@@ -176,7 +188,7 @@ std::expected<api::dto::EventsListDto, std::string> SpialertService::request_eve
 	const int offset, const std::optional<bool> image_uploaded) const
 {
 	auto received =
-		send_with_retry([&] { return _spialert_api->get_events(EVENTS_PAGE_SIZE, offset, image_uploaded); });
+		send_with_retry([&] { return _spialert_api->get_events(MAX_EVENTS_LIMIT, offset, image_uploaded); });
 	if (!received.response.is_success())
 		return std::unexpected(
 			std::format("Events were not listed: page at offset {}: {}", offset, describe(received)));
@@ -212,17 +224,11 @@ SpialertService::SendResult<std::invoke_result_t<const RequestType&>> SpialertSe
 		if (!rate_limited && !network_error)
 			break;
 
-		const auto delay =
-			rate_limited ? result.response.retry_after.value_or(DEFAULT_RETRY_AFTER) : network_backoff(attempt);
-		const bool wait_too_long = rate_limited && delay > MAX_RETRY_AFTER;
-		if (wait_too_long)
-		{
-			result.give_up_reason =
-				std::format("server asks to wait {} s, more than {} s", delay.count(), MAX_RETRY_AFTER.count());
-			break;
-		}
 		if (attempt == MAX_SEND_ATTEMPTS)
 			break;
+
+		const auto delay =
+			rate_limited ? result.response.retry_after.value_or(DEFAULT_RETRY_AFTER) : network_backoff(attempt);
 
 		// NOTE: 429 means the server has not processed the request, so only a network error makes the outcome unknown
 		result.resent = result.resent || network_error;
@@ -246,10 +252,7 @@ template <typename ResponseType>
 std::string SpialertService::describe(const SendResult<ResponseType>& result)
 {
 	const auto& response = result.response;
-	std::string text = response.error ? response.error->describe() : std::format("HTTP {}", response.status_code);
-	if (!result.give_up_reason.empty())
-		text += std::format(" ({})", result.give_up_reason);
-	return text;
+	return response.error ? response.error->describe() : std::format("HTTP {}", response.status_code);
 }
 
 } // namespace app

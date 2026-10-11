@@ -1,6 +1,7 @@
 #ifndef WINSPIALERTCLIENT_SAXHANDLER_H
 #define WINSPIALERTCLIENT_SAXHANDLER_H
 
+#include <optional>
 #include <string_view>
 
 #include "rapidjson/reader.h"
@@ -85,6 +86,24 @@ struct BaseSaxHandler
 	bool EndArray(rapidjson::SizeType elementCount)
 	{
 		return true;
+	}
+};
+
+class SaxParser
+{
+public:
+	template <typename Handler, typename Dto>
+	static std::optional<Dto> parse_in_situ(char* json_buffer)
+	{
+		Dto out;
+		rapidjson::Reader reader;
+		rapidjson::InsituStringStream stream(json_buffer);
+		Handler handler{out};
+
+		const rapidjson::ParseResult parsed = reader.Parse<rapidjson::kParseInsituFlag>(stream, handler);
+		if (parsed.IsError())
+			return std::nullopt;
+		return out;
 	}
 };
 

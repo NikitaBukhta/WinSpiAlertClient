@@ -2,6 +2,7 @@
 
 #include <format>
 
+#include "ApiConstants.h"
 #include "dto/EventObjectDto.h"
 #include "dto/EventRequestDto.h"
 #include "dto/EventsListDto.h"
@@ -11,11 +12,8 @@
 #include "net/MultipartBuilder.h"
 #include "utils/UuidGenerator.h"
 
-#define API_KEY_HEADER "X-API-Key: "
 #define CONTENT_TYPE_HEADER "\r\nContent-Type: "
 #define JSON_CONTENT_TYPE "application/json"
-#define STATUS_PATH "/status"
-#define EVENTS_PATH "/events"
 #define IMAGE_PATH_FORMAT "/events/{}/image"
 #define EVENTS_QUERY_FORMAT "?limit={}&offset={}"
 #define IMAGE_UPLOADED_QUERY_FORMAT "&image_uploaded={}"
@@ -40,7 +38,8 @@ ApiResponse<dto::EventObjectDto> SpialertApi::post_events(const dto::EventReques
 	const std::string json = dto::EventRequestMapper::toJson(event);
 	const std::string_view body_parts[] = {json};
 
-	return execute_request("POST", EVENTS_PATH, body_parts, JSON_CONTENT_TYPE, dto::EventObjectMapper::fromJson);
+	return require_event_id(
+		execute_request("POST", EVENTS_PATH, body_parts, JSON_CONTENT_TYPE, dto::EventObjectMapper::fromJson));
 }
 
 ApiResponse<dto::EventsListDto> SpialertApi::get_events(int limit, int offset, std::optional<bool> image_uploaded)
@@ -67,14 +66,16 @@ ApiResponse<dto::EventObjectDto> SpialertApi::post_image(const model::Image& ima
 	const std::string closing = net::MultipartBuilder::closing_boundary(boundary);
 	const std::string_view body_parts[] = {header, image.data(), closing};
 
-	return execute_request("POST", std::format(IMAGE_PATH_FORMAT, event_id), body_parts,
-	                       net::MultipartBuilder::content_type(boundary), dto::EventObjectMapper::fromJson);
+	return require_event_id(execute_request("POST", std::format(IMAGE_PATH_FORMAT, event_id), body_parts,
+	                                        net::MultipartBuilder::content_type(boundary),
+	                                        dto::EventObjectMapper::fromJson));
 }
 
 template <typename DtoType>
 ApiResponse<DtoType> SpialertApi::execute_request(const std::string& method, const std::string& path,
                                                   std::span<const std::string_view> body_parts,
-                                                  const std::string& content_type, DtoType (*from_json)(char*))
+                                                  const std::string& content_type,
+                                                  std::optional<DtoType> (*from_json)(char*))
 {
 	const std::string headers =
 		content_type.empty() ? _auth_headers : _auth_headers + CONTENT_TYPE_HEADER + content_type;
@@ -89,13 +90,21 @@ ApiResponse<DtoType> SpialertApi::execute_request(const std::string& method, con
 
 	result.status_code = response.status_code;
 	result.retry_after = response.retry_after;
+	if (!result.is_success())
+	{
+		const auto server_error = dto::ServerErrorMapper::fromJson(response.body.data());
+		result.error = ApiError::server(result.status_code, std::move(response.message), server_error.value_or({}));
+		return result;
+	}
 
-	if (result.is_success())
-		result.dto = from_json(response.body.data());
-	else
-		result.error = ApiError::server(result.status_code, std::move(response.message),
-		                                dto::ServerErrorMapper::fromJson(response.body.data()));
+	auto dto = from_json(response.body.data());
+	if (!dto)
+	{
+		result.error = ApiError::unreadable_response(result.status_code);
+		return result;
+	}
 
+	result.dto = std::move(*dto);
 	return result;
 }
 
@@ -106,4 +115,12 @@ ApiResponse<DtoType> SpialertApi::local_error(std::string message)
 	result.error = ApiError::local(std::move(message));
 	return result;
 }
+ApiResponse<dto::EventObjectDto> SpialertApi::require_event_id(ApiResponse<dto::EventObjectDto> response)
+{
+	const bool event_without_id = response.is_success() && response.dto.event_id <= 0;
+	if (event_without_id)
+		response.error = ApiError::unreadable_response(response.status_code);
+	return response;
+}
+
 } // namespace api

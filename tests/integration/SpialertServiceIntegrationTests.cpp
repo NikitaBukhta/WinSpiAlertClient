@@ -10,6 +10,7 @@
 #include <rapidjson/document.h>
 
 #include "MockServerEnvironment.h"
+#include "api/ApiConstants.h"
 #include "api/SpialertApi.h"
 #include "api/dto/EventsListDto.h"
 #include "app/SpialertService.h"
@@ -20,11 +21,9 @@
 #include "tests/helpers/TempFile.h"
 #include "utils/FileUtils.h"
 
-#define PNG_IMAGE "\x89PNG\r\n\x1a\nimage-bytes"
-#define DEFAULT_LIMIT 20
 #define LARGE_JPEG_WIDTH 4000
 #define LARGE_JPEG_HEIGHT 3000
-#define MAX_MANIFEST_SIZE (64 * 1024)
+#define MAX_MANIFEST_SIZE (64 * KIB)
 
 using integration::MockServerEnvironment;
 using integration::MockServerTest;
@@ -53,7 +52,7 @@ protected:
 
 	api::dto::EventsListDto list_events()
 	{
-		return _events_api->get_events(DEFAULT_LIMIT, 0, std::nullopt).dto;
+		return _events_api->get_events(DEFAULT_EVENTS_LIMIT, 0, std::nullopt).dto;
 	}
 
 	std::unique_ptr<app::SpialertService> _service;

@@ -6,9 +6,6 @@
 
 #include "ApiResponse.h"
 
-// TODO: move to secret/config.json ("max_image_size"), pass to SpialertApi and SpialertService
-#define MAX_IMAGE_SIZE (5 * 1024 * 1024)
-
 namespace model
 {
 class Image;

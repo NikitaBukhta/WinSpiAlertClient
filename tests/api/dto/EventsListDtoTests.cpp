@@ -155,10 +155,12 @@ TEST(EventsListDtoTests, IgnoresTopLevelValuesOfEveryType)
 	EXPECT_EQ(dto.items[0].event_id, 1);
 }
 
-TEST(EventsListDtoTests, EmptyBodyGivesDefaultDto)
+TEST(EventsListDtoTests, EmptyBodyIsNotJson)
 {
-	const auto dto = DtoParser::parse<EventsListMapper>("");
+	EXPECT_EQ(DtoParser::try_parse<EventsListMapper>(""), std::nullopt);
+}
 
-	EXPECT_EQ(dto.total, 0);
-	EXPECT_TRUE(dto.items.empty());
+TEST(EventsListDtoTests, InvalidJsonIsNotAList)
+{
+	EXPECT_EQ(DtoParser::try_parse<EventsListMapper>(R"({"total":3,"items":[)"), std::nullopt);
 }

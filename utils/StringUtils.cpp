@@ -5,7 +5,7 @@
 
 #include <windows.h>
 
-#define BYTES_IN_KILOBYTE 1024
+#include "SizeUnits.h"
 
 namespace utils
 {
@@ -30,14 +30,14 @@ std::string StringUtils::to_utf8(const std::wstring_view wide)
 std::string StringUtils::format_byte_size(const uint64_t size)
 {
 	static constexpr auto UNITS = std::to_array<std::string_view>({"B", "KB", "MB", "GB"});
-	if (size < BYTES_IN_KILOBYTE)
+	if (size < KIB)
 		return std::format("{} {}", size, UNITS.front());
 
 	auto value = static_cast<double>(size);
 	size_t unit = 0;
-	while (value >= BYTES_IN_KILOBYTE && unit + 1 < UNITS.size())
+	while (value >= KIB && unit + 1 < UNITS.size())
 	{
-		value /= BYTES_IN_KILOBYTE;
+		value /= KIB;
 		++unit;
 	}
 	return std::format("{:.1f} {}", value, UNITS[unit]);
