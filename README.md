@@ -1,33 +1,48 @@
 # WinSpiAlertClient
 
-Windows client built with MSVC and CMake.
+Windows client for the SpiAlert Event API (C++23, MSVC, CMake).
 
-## Prerequisites
+## Requirements
 
-| Tool | Notes |
-|------|-------|
-| [Visual Studio 2022 or newer](https://visualstudio.microsoft.com/downloads/) | Workload **Desktop development with C++** (MSVC compiler + Windows SDK) |
-| [Python 3.10+](https://www.python.org/downloads/windows/) | Used by `scripts/project.py` |
-| [Git](https://git-scm.com/downloads/win) | CMake downloads dependencies (rapidjson) via Git |
+- **Visual Studio 2022 or newer** with the *Desktop development with C++* workload (MSVC + Windows SDK)
+- **Python 3.10+** — runs the build script
+- **Git** — CMake fetches the dependencies (rapidjson, googletest) automatically
 
-CMake, clang-format, cmake-format and ruff do **not** need to be installed: the script puts them into a local `.venv` on first run.
+CMake itself is installed by the build script into a local `.venv`, nothing else is needed.
 
 ## Build
 
 ```bat
-py scripts\project.py build            :: Debug build
-py scripts\project.py build Release    :: Release build
+py scripts\project.py build Release
 ```
 
-Output: `build\Debug\client.exe` / `build\Release\client.exe`.
+Result: `build\Release\client.exe`. Tests: `py scripts\project.py test`.
 
-## Code formatting
+## Configure
+
+Copy the example and fill in the URL and key:
 
 ```bat
-py scripts\project.py format    :: format C++, CMake and Python files
-py scripts\project.py check     :: check only, exit code 1 if something is not formatted
+copy secret\config.json.example secret\config.json
 ```
 
-Style configs: `.clang-format` (Microsoft style), `.cmake-format.yaml`, `ruff.toml`, `.editorconfig`.
+```json
+{
+	"base_url": "https://challenge.spialert.com/api/v1",
+	"api_key": "chk_your_key_here"
+}
+```
 
-All commands: `py scripts\project.py help`.
+## Run
+
+```bat
+build\Release\client.exe
+```
+
+To run against the local mock server instead of the real API (`base_url`: `https://localhost:8443/api/v1`,
+`api_key`: `test-key`):
+
+```bat
+py scripts\mock_server.py install-cert   :: once, trusts the self-signed localhost certificate
+py scripts\mock_server.py
+```

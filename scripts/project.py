@@ -1,12 +1,10 @@
-"""Project helper: python scripts/project.py [configure|build|format|check] [Debug|Release]"""
-
 import argparse, subprocess, sys, venv
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 VENV = ROOT / ".venv"
 BIN = VENV / ("Scripts" if sys.platform == "win32" else "bin")
-DEPS = ["cmake", "clang-format", "cmakelang[YAML]", "ruff"]
+DEPS = ["cmake", "clang-format", "cmakelang[YAML]", "ruff", "cryptography"]
 SKIP = {".venv", ".vs", ".idea", ".git", "build", "out", "_deps"}
 CPP = {".c", ".cc", ".cpp", ".cxx", ".h", ".hh", ".hpp", ".hxx", ".inl", ".ipp"}
 
@@ -15,7 +13,7 @@ def run(*cmd, check=True):
     return subprocess.run([str(c) for c in cmd], cwd=ROOT, check=check).returncode
 
 
-def ensureVenv():
+def ensure_venv():
     marker = VENV / "deps.txt"
     if marker.exists() and marker.read_text() == "\n".join(DEPS):
         return
@@ -31,7 +29,7 @@ def files(match):
             yield p
 
 
-def formatAll(check):
+def format_all(check):
     cpp = list(files(lambda p: p.suffix.lower() in CPP))
     cmake = list(files(lambda p: p.name == "CMakeLists.txt" or p.suffix == ".cmake"))
     failed = bool(cpp) and run(
@@ -52,13 +50,14 @@ def formatAll(check):
 COMMANDS = {
     "configure": "generate the build directory (cmake -S . -B build)",
     "build": "configure and build the project",
+    "test": "build and run the unit tests (GoogleTest via ctest)",
     "format": "format C++ (clang-format), CMake (cmake-format) and Python (ruff) files in place",
     "check": "check formatting without changes, exit code 1 if something is not formatted",
     "help": "show this help",
 }
 
 
-def parseArgs():
+def parse_args():
     parser = argparse.ArgumentParser(
         prog="python scripts/project.py",
         description="Project helper. Tools (cmake, clang-format, cmake-format, ruff) are installed into .venv on first run.",
@@ -79,7 +78,7 @@ def parseArgs():
         default="Debug",
         choices=["Debug", "Release", "RelWithDebInfo", "MinSizeRel"],
         metavar="config",
-        help="Debug, Release, RelWithDebInfo or MinSizeRel, used by 'build' (default: Debug)",
+        help="Debug, Release, RelWithDebInfo or MinSizeRel, used by 'build' and 'test' (default: Debug)",
     )
     args = parser.parse_args()
     if args.command == "help":
@@ -89,15 +88,17 @@ def parseArgs():
 
 
 def main():
-    args = parseArgs()
+    args = parse_args()
     cmd, config = args.command, args.config
-    ensureVenv()
-    if cmd in ("configure", "build"):
+    ensure_venv()
+    if cmd in ("configure", "build", "test"):
         run(BIN / "cmake", "-S", ROOT, "-B", ROOT / "build")
-    if cmd == "build":
+    if cmd in ("build", "test"):
         run(BIN / "cmake", "--build", ROOT / "build", "--config", config)
+    if cmd == "test":
+        run(BIN / "ctest", "--test-dir", ROOT / "build", "-C", config, "--output-on-failure")
     if cmd in ("format", "check"):
-        formatAll(cmd == "check")
+        format_all(cmd == "check")
 
 
 if __name__ == "__main__":

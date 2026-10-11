@@ -8,3 +8,12 @@ build*/
 
 # python env
 .venv
+__pycache__/
+.ruff_cache/
+
+# secret
+docs/spec/
+secret/config.json
+
+# mock server certificate and private key
+.mock-server/
