@@ -17,3 +17,6 @@ secret/config.json
 
 # mock server certificate and private key
 .mock-server/
+
+# OpenCppCoverage log
+LastCoverageResults.log

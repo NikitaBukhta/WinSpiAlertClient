@@ -12,6 +12,7 @@ from .endpoints import ApiRequest, handle_api_request
 from .errors import ApiError
 
 HTML_ERROR_BODY = b"<html><body><h1>502 Bad Gateway</h1></body></html>"
+TRUNCATED_BODY = b'{"status": "online", "api_version": "1.0", "candidate": "Mock Candidate"}'
 FAULT_ERROR_CODES = {429: "rate_limited", 500: "internal_error"}
 DEFAULT_FAULT_ERROR_CODE = "injected_error"
 DEFAULT_FAULT_MESSAGE = "Injected by mock server"
@@ -91,6 +92,17 @@ class RequestHandler(BaseHTTPRequestHandler):
             headers = {"Retry-After": str(fault.retry_after)} if fault.retry_after is not None else {}
             self.send_json(status, error.to_json(), headers)
             self.log_result(status, notes)
+        elif fault.kind == "truncate":
+            self.send_truncated(TRUNCATED_BODY)
+            self.log_result("truncated", notes)
+
+    def send_truncated(self, body):
+        self.close_connection = True
+        self.send_response(HTTPStatus.OK)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body[: len(body) // 2])
 
     def read_body(self):
         length = int(self.headers.get("Content-Length") or 0)

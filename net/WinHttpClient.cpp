@@ -12,6 +12,7 @@ using utils::StringUtils;
 #define RECEIVE_TIMEOUT_MS 30'000
 #define READ_CHUNK_SIZE (8 * 1024)
 #define ERROR_TEXT_MAX_LEN 512
+#define RETRY_AFTER_HEADER L"Retry-After"
 
 namespace net
 {
@@ -115,9 +116,16 @@ std::expected<HttpResponse, DWORD> WinHttpClient::read_response(const HINTERNET 
 	if (!status_code || !read_body(request, response.body))
 		return std::unexpected(GetLastError());
 
+	// NOTE: when the server closes the connection mid-body, WinHttpReadData just reports the end of data
+	const auto content_length = query_number_header(request, WINHTTP_QUERY_CONTENT_LENGTH);
+	const bool body_complete = !content_length || response.body.size() == *content_length;
+	if (!body_complete)
+		return std::unexpected(static_cast<DWORD>(ERROR_WINHTTP_CONNECTION_ERROR));
+
 	response.status_code = *status_code;
 
-	if (const auto retry_after = query_number_header(request, WINHTTP_QUERY_RETRY_AFTER))
+	// NOTE: WINHTTP_QUERY_RETRY_AFTER does not support WINHTTP_QUERY_FLAG_NUMBER (fails with 12154), query it by name
+	if (const auto retry_after = query_number_header(request, WINHTTP_QUERY_CUSTOM, RETRY_AFTER_HEADER))
 		response.retry_after = std::chrono::seconds{*retry_after};
 
 	return response;
@@ -139,12 +147,13 @@ HttpResponse WinHttpClient::make_error(const DWORD error_code)
 	return response;
 }
 
-std::optional<DWORD> WinHttpClient::query_number_header(const HINTERNET request, const DWORD header)
+std::optional<DWORD> WinHttpClient::query_number_header(const HINTERNET request, const DWORD header,
+                                                        const wchar_t* name)
 {
 	DWORD value{};
 	DWORD size = sizeof(value);
-	const BOOL found = WinHttpQueryHeaders(request, header | WINHTTP_QUERY_FLAG_NUMBER, WINHTTP_HEADER_NAME_BY_INDEX,
-	                                       &value, &size, WINHTTP_NO_HEADER_INDEX);
+	const BOOL found =
+		WinHttpQueryHeaders(request, header | WINHTTP_QUERY_FLAG_NUMBER, name, &value, &size, WINHTTP_NO_HEADER_INDEX);
 	if (!found)
 		return std::nullopt;
 

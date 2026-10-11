@@ -12,6 +12,7 @@ FAULT_KINDS = {
     "reset": "close the connection without processing",
     "status": f'respond with "status" (default {DEFAULT_FAULT_STATUS}), optional "retry_after", "code", "message"',
     "html": "respond 502 with an HTML body",
+    "truncate": "respond 200 with Content-Length of the full body, send half of it and close the connection",
     "delay": f'sleep "seconds" (default {DEFAULT_DELAY_SEC}), then process normally',
 }
 

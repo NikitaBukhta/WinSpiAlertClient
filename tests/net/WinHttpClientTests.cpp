@@ -26,6 +26,14 @@ TEST(WinHttpClientTests, OpenTwiceSucceeds)
 	EXPECT_TRUE(client.open());
 }
 
+TEST(WinHttpClientTests, EmptyHostFailsToOpen)
+{
+	WinHttpClient client("", TEST_USER_AGENT, CLOSED_PORT);
+
+	EXPECT_FALSE(client.open());
+	EXPECT_EQ(client.send_request("/api/v1/status", "GET", {}, {}).error_code, ERROR_WINHTTP_INCORRECT_HANDLE_STATE);
+}
+
 TEST(WinHttpClientTests, SendBeforeOpenReturnsHandleStateError)
 {
 	WinHttpClient client(LOCAL_HOST, TEST_USER_AGENT, CLOSED_PORT);

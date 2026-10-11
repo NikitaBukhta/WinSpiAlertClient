@@ -1,4 +1,5 @@
-import argparse, subprocess, sys, venv
+import argparse, os, shutil, subprocess, sys, venv
+from xml.etree import ElementTree
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -7,10 +8,16 @@ BIN = VENV / ("Scripts" if sys.platform == "win32" else "bin")
 DEPS = ["cmake", "clang-format", "cmakelang[YAML]", "ruff", "cryptography"]
 SKIP = {".venv", ".vs", ".idea", ".git", "build", "out", "_deps"}
 CPP = {".c", ".cc", ".cpp", ".cxx", ".h", ".hh", ".hpp", ".hxx", ".inl", ".ipp"}
+COVERAGE_TOOL = Path(os.environ.get("ProgramFiles", r"C:\Program Files")) / "OpenCppCoverage" / "OpenCppCoverage.exe"
+COVERAGE_DIR = ROOT / "build" / "coverage"
 
 
 def run(*cmd, check=True):
     return subprocess.run([str(c) for c in cmd], cwd=ROOT, check=check).returncode
+
+
+def run_ctest(config, *args):
+    run(BIN / "ctest", "--test-dir", ROOT / "build", "-C", config, "--output-on-failure", *args)
 
 
 def ensure_venv():
@@ -47,10 +54,76 @@ def format_all(check):
         sys.exit(1)
 
 
+def find_coverage_tool():
+    tool = shutil.which("OpenCppCoverage") or (COVERAGE_TOOL if COVERAGE_TOOL.exists() else None)
+    if not tool:
+        sys.exit("OpenCppCoverage not found, install it: winget install OpenCppCoverage.OpenCppCoverage")
+    return tool
+
+
+def measure_coverage(config):
+    tool = find_coverage_tool()
+    binaries = ROOT / "build" / config
+    common = ["--quiet", "--sources", ROOT, "--excluded_sources", ROOT / "build", "--excluded_sources", ROOT / "tests"]
+    unit_coverage = COVERAGE_DIR / "unit.cov"
+    report = COVERAGE_DIR / "coverage.xml"
+
+    shutil.rmtree(COVERAGE_DIR, ignore_errors=True)
+    run(tool, *common, "--export_type", f"binary:{unit_coverage}", "--", binaries / "client_tests.exe")
+    integration_failed = run(
+        tool,
+        *common,
+        "--input_coverage",
+        unit_coverage,
+        "--export_type",
+        f"html:{COVERAGE_DIR / 'html'}",
+        "--export_type",
+        f"cobertura:{report}",
+        "--",
+        binaries / "client_integration_tests.exe",
+        check=False,
+    )
+    print_coverage(report)
+    print(f"HTML report: {COVERAGE_DIR / 'html' / 'index.html'}")
+    if integration_failed:
+        sys.exit("integration tests failed, their coverage is incomplete (is the mock certificate installed?)")
+
+
+def read_coverage(report):
+    # cobertura has one entry per file and per test binary: merge them into {file: {line: hit}}
+    root_without_drive = str(ROOT)[len(ROOT.drive) + 1 :].lower() + "\\"
+    files = {}
+    for source in ElementTree.parse(report).getroot().iter("class"):
+        name = source.get("filename")
+        name = name[len(root_without_drive) :] if name.lower().startswith(root_without_drive) else name
+        # resolve() restores the on-disk case: includes may spell a file name in another case
+        name = str((ROOT / name).resolve().relative_to(ROOT.resolve()))
+        lines = files.setdefault(name, {})
+        for line in source.iter("line"):
+            number = int(line.get("number"))
+            lines[number] = lines.get(number, False) or int(line.get("hits")) > 0
+    return files
+
+
+def print_coverage(report):
+    files = read_coverage(report)
+    total_lines = total_covered = 0
+    print(f"\n{'file':<34} {'lines':>9} {'coverage':>9}  not covered")
+    for name, lines in sorted(files.items()):
+        covered = sum(lines.values())
+        missed = ", ".join(str(number) for number, hit in sorted(lines.items()) if not hit)
+        print(f"{name:<34} {covered:>4}/{len(lines):<4} {100 * covered / len(lines):8.1f}%  {missed}")
+        total_lines += len(lines)
+        total_covered += covered
+    print(f"{'total':<34} {total_covered:>4}/{total_lines:<4} {100 * total_covered / total_lines:8.1f}%")
+
+
 COMMANDS = {
     "configure": "generate the build directory (cmake -S . -B build)",
     "build": "configure and build the project",
-    "test": "build and run the unit tests (GoogleTest via ctest)",
+    "test": "build and run the unit tests: C++ (GoogleTest via ctest)",
+    "integration": "build and run the client against the mock server (needs: mock_server.py install-cert)",
+    "coverage": "build and measure C++ line coverage of unit + integration tests (needs OpenCppCoverage)",
     "format": "format C++ (clang-format), CMake (cmake-format) and Python (ruff) files in place",
     "check": "check formatting without changes, exit code 1 if something is not formatted",
     "help": "show this help",
@@ -61,7 +134,7 @@ def parse_args():
     parser = argparse.ArgumentParser(
         prog="python scripts/project.py",
         description="Project helper. Tools (cmake, clang-format, cmake-format, ruff) are installed into .venv on first run.",
-        epilog="commands:\n" + "\n".join(f"  {k:<10} {v}" for k, v in COMMANDS.items()),
+        epilog="commands:\n" + "\n".join(f"  {k:<12} {v}" for k, v in COMMANDS.items()),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.add_argument(
@@ -78,7 +151,7 @@ def parse_args():
         default="Debug",
         choices=["Debug", "Release", "RelWithDebInfo", "MinSizeRel"],
         metavar="config",
-        help="Debug, Release, RelWithDebInfo or MinSizeRel, used by 'build' and 'test' (default: Debug)",
+        help="Debug, Release, RelWithDebInfo or MinSizeRel, used by 'build', 'test', 'integration' and 'coverage' (default: Debug)",
     )
     args = parser.parse_args()
     if args.command == "help":
@@ -91,12 +164,16 @@ def main():
     args = parse_args()
     cmd, config = args.command, args.config
     ensure_venv()
-    if cmd in ("configure", "build", "test"):
+    if cmd in ("configure", "build", "test", "integration", "coverage"):
         run(BIN / "cmake", "-S", ROOT, "-B", ROOT / "build")
-    if cmd in ("build", "test"):
+    if cmd in ("build", "test", "integration", "coverage"):
         run(BIN / "cmake", "--build", ROOT / "build", "--config", config)
     if cmd == "test":
-        run(BIN / "ctest", "--test-dir", ROOT / "build", "-C", config, "--output-on-failure")
+        run_ctest(config, "--label-exclude", "integration")
+    if cmd == "integration":
+        run_ctest(config, "--label-regex", "integration")
+    if cmd == "coverage":
+        measure_coverage(config)
     if cmd in ("format", "check"):
         format_all(cmd == "check")
 

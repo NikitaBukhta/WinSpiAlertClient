@@ -133,6 +133,28 @@ TEST(EventsListDtoTests, IgnoresUnknownTopLevelFields)
 	EXPECT_TRUE(dto.items.empty());
 }
 
+TEST(EventsListDtoTests, ItemReceivesValuesOfEveryType)
+{
+	const auto dto = DtoParser::parse<EventsListMapper>(
+		R"({"items":[{"event_code":-2,"image_size":5000000000,"image_uploaded":true,"file_name":"a.png"}]})");
+
+	ASSERT_EQ(dto.items.size(), 1u);
+	EXPECT_EQ(dto.items[0].event_code, -2);
+	EXPECT_EQ(dto.items[0].image_size, size_t{5'000'000'000});
+	EXPECT_TRUE(dto.items[0].image_uploaded);
+	EXPECT_EQ(dto.items[0].file_name, "a.png");
+}
+
+TEST(EventsListDtoTests, IgnoresTopLevelValuesOfEveryType)
+{
+	const auto dto = DtoParser::parse<EventsListMapper>(
+		R"({"has_more":false,"cursor":"abc","big":5000000000,"total":1,"items":[{"event_id":1}]})");
+
+	EXPECT_EQ(dto.total, 1);
+	ASSERT_EQ(dto.items.size(), 1u);
+	EXPECT_EQ(dto.items[0].event_id, 1);
+}
+
 TEST(EventsListDtoTests, EmptyBodyGivesDefaultDto)
 {
 	const auto dto = DtoParser::parse<EventsListMapper>("");

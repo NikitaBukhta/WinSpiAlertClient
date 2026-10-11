@@ -45,6 +45,15 @@ TEST(StatusDtoTests, IgnoresUnknownFields)
 	EXPECT_TRUE(dto.status);
 }
 
+TEST(StatusDtoTests, IgnoresValuesOfEveryJsonType)
+{
+	const auto dto = DtoParser::parse<StatusMapper>(
+		R"({"negative":-1,"big_negative":-5000000000,"big":5000000000,"ratio":0.5,"flag":false,"none":null,)"
+		R"("status":"online"})");
+
+	EXPECT_TRUE(dto.status);
+}
+
 TEST(StatusDtoTests, MissingFieldsStayDefault)
 {
 	const auto dto = DtoParser::parse<StatusMapper>("{}");

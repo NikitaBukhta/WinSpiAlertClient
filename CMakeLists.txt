@@ -62,6 +62,10 @@ if(WINSPIALERT_BUILD_TESTS)
 	set(INSTALL_GTEST OFF CACHE BOOL "" FORCE)
 	FetchContent_MakeAvailable(googletest)
 
+	# --------------------------- #
+	# -------- UNIT TESTS ------- #
+	# --------------------------- #
+
 	add_executable(
 		client_tests
 		tests/api/ApiResponseTests.cpp tests/api/SpialertApiTests.cpp tests/api/dto/EventObjectDtoTests.cpp
@@ -72,4 +76,26 @@ if(WINSPIALERT_BUILD_TESTS)
 
 	include(GoogleTest)
 	gtest_discover_tests(client_tests)
+
+	# --------------------------- #
+	# ---- INTEGRATION TESTS ---- #
+	# --------------------------- #
+
+	add_executable(
+		client_integration_tests
+		tests/helpers/MockServerProcess.cpp tests/helpers/MockServerProcess.h tests/integration/main.cpp
+		tests/integration/MockServerEnvironment.cpp tests/integration/MockServerEnvironment.h
+		tests/integration/SpialertApiIntegrationTests.cpp tests/integration/WinHttpClientIntegrationTests.cpp
+	)
+
+	target_link_libraries(client_integration_tests PRIVATE client_core GTest::gtest ws2_32)
+	target_compile_definitions(
+		client_integration_tests
+		PRIVATE MOCK_SERVER_PYTHON="${CMAKE_SOURCE_DIR}/.venv/Scripts/python.exe"
+				MOCK_SERVER_SCRIPT="${CMAKE_SOURCE_DIR}/scripts/mock_server.py"
+				MOCK_SERVER_LOG="${CMAKE_CURRENT_BINARY_DIR}/mock_server.log"
+	)
+
+	add_test(NAME client_integration_tests COMMAND client_integration_tests)
+	set_tests_properties(client_integration_tests PROPERTIES LABELS integration)
 endif()

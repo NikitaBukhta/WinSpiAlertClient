@@ -1,5 +1,6 @@
 line-length = 120
 target-version = "py310"
+src = ["scripts"]
 
 [format]
 line-ending = "cr-lf"
