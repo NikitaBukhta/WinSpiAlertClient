@@ -51,6 +51,20 @@ TEST(ImageTests, MissingFileIsNotLoaded)
 	EXPECT_FALSE(Image::load("Z:\\no\\such\\a.png", MAX_LOAD_SIZE).has_value());
 }
 
+TEST(ImageTests, FormatOfSupportedFormats)
+{
+	EXPECT_EQ(Image("a.png", PNG_DATA).format(), Image::FormatEnum::PNG_FORMAT);
+	EXPECT_EQ(Image("a.jpg", JPEG_DATA).format(), Image::FormatEnum::JPEG_FORMAT);
+	EXPECT_EQ(Image("a.jpeg", JPEG_DATA).format(), Image::FormatEnum::JPEG_FORMAT);
+}
+
+TEST(ImageTests, InvalidImageHasNoFormat)
+{
+	EXPECT_EQ(Image("a.gif", "GIF89a").format(), std::nullopt);
+	EXPECT_EQ(Image("a.png", JPEG_DATA).format(), std::nullopt);
+	EXPECT_EQ(Image("capture 0001.png", PNG_DATA).format(), std::nullopt);
+}
+
 TEST(ImageTests, ContentTypeOfSupportedFormats)
 {
 	EXPECT_EQ(Image("a.png", PNG_DATA).content_type(), "image/png");

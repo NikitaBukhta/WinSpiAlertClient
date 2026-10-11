@@ -10,6 +10,7 @@
 
 #include "api/ISpialertApi.h"
 #include "api/dto/EventObjectDto.h"
+#include "model/IImageCompressorFactory.h"
 
 namespace app
 {
@@ -17,9 +18,10 @@ namespace app
 class SpialertService
 {
 public:
-	explicit SpialertService(std::unique_ptr<api::ISpialertApi> spialert_api);
+	SpialertService(std::unique_ptr<api::ISpialertApi> spialert_api,
+	                std::unique_ptr<model::IImageCompressorFactory> compressor_factory);
 
-	bool is_online() const;
+	[[nodiscard]] bool is_online() const;
 	bool send_img(const std::filesystem::path& image_path);
 
 private:
@@ -29,13 +31,15 @@ private:
 		bool resent{};
 	};
 
-	static std::optional<model::Image> load_image(const std::filesystem::path& image_path);
+	[[nodiscard]] std::optional<model::Image> load_image(const std::filesystem::path& image_path) const;
+	[[nodiscard]] std::optional<model::Image> shrink_image(const model::Image& image) const;
 	std::optional<api::dto::EventObjectDto> create_event(const std::string& file_name);
-	bool upload_image(const model::Image& image, int event_id) const;
+	[[nodiscard]] bool upload_image(const model::Image& image, int event_id) const;
 	static SendResult send_with_retry(const std::function<api::ApiResponse<api::dto::EventObjectDto>()>& request);
 
 private:
 	std::unique_ptr<api::ISpialertApi> _spialert_api;
+	std::unique_ptr<model::IImageCompressorFactory> _compressor_factory;
 	std::mt19937 _random;
 };
 

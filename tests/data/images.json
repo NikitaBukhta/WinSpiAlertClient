@@ -1,0 +1,76 @@
+{
+	"images": [
+		{
+			"name": "cat_portrait.jpg",
+			"sent": true,
+			"sha256": "e6810b836cad4fc4bc2e9a875f7e7ebef932df12204cc655df2950e9dce46c14",
+			"url": "https://upload.wikimedia.org/wikipedia/commons/3/3c/Domestic_shorthair_cat_portrait_in_grass.jpg",
+			"source": "https://commons.wikimedia.org/wiki/File:Domestic_shorthair_cat_portrait_in_grass.jpg",
+			"license": "CC0"
+		},
+		{
+			"name": "pond.jpg",
+			"sent": true,
+			"sha256": "9cb09195462c4b5c612d82fa2dd2d48a53e20637af71bcd845817afe5c38194c",
+			"url": "https://upload.wikimedia.org/wikipedia/commons/b/b6/Komargorod_pond_2013_G5.jpg",
+			"source": "https://commons.wikimedia.org/wiki/File:Komargorod_pond_2013_G5.jpg",
+			"license": "Public domain"
+		},
+		{
+			"name": "iceberg.jpg",
+			"sent": true,
+			"sha256": "304fa4bfe5c558f66bce4d6f0d445662bf4ea5fe97421221ab0809738883c14a",
+			"url": "https://upload.wikimedia.org/wikipedia/commons/e/e6/Iceberg_in_North_Star_Bay%2C_Greenland.jpg",
+			"source": "https://commons.wikimedia.org/wiki/File:Iceberg_in_North_Star_Bay,_Greenland.jpg",
+			"license": "Public domain"
+		},
+		{
+			"name": "cat_quebec.jpg",
+			"sent": true,
+			"sha256": "9be0de2c50f17b7e776ad0562748a29a00ab2e8e39903d23336eece187e0b7ed",
+			"url": "https://upload.wikimedia.org/wikipedia/commons/8/87/Cat_in_Quebec_city.jpg",
+			"source": "https://commons.wikimedia.org/wiki/File:Cat_in_Quebec_city.jpg",
+			"license": "CC0"
+		},
+		{
+			"name": "cat_meadow_painting.jpg",
+			"sent": true,
+			"sha256": "ae30926eb41bcf396571463d48740034d0dc45b7be879e9b6e3bed334c2d67b6",
+			"url": "https://upload.wikimedia.org/wikipedia/commons/2/22/Bruno_Liljefors_-_Cat_on_a_summer_meadow_1919.jpg",
+			"source": "https://commons.wikimedia.org/wiki/File:Bruno_Liljefors_-_Cat_on_a_summer_meadow_1919.jpg",
+			"license": "Public domain"
+		},
+		{
+			"name": "cat_rocks.jpg",
+			"sent": false,
+			"sha256": "31468205fc1387472836decd87fa1720247f0318595d8add010f60ab30632adf",
+			"url": "https://upload.wikimedia.org/wikipedia/commons/a/a7/Cat_among_the_rocks.jpg",
+			"source": "https://commons.wikimedia.org/wiki/File:Cat_among_the_rocks.jpg",
+			"license": "CC0"
+		},
+		{
+			"name": "cat_chiquito.png",
+			"sent": true,
+			"sha256": "66bdf21ca3f7920bb0d8717825715867816c8d9f39de8228300f3a8a162a0acd",
+			"url": "https://upload.wikimedia.org/wikipedia/commons/2/22/Chiquito_the_Cat.png",
+			"source": "https://commons.wikimedia.org/wiki/File:Chiquito_the_Cat.png",
+			"license": "CC0"
+		},
+		{
+			"name": "cat_norwegian_forest.png",
+			"sent": true,
+			"sha256": "13bb3eb17051d5c690ec20eda77fc192414b52a93003cbcab5669345dc31e5da",
+			"url": "https://upload.wikimedia.org/wikipedia/commons/3/30/Norwegian_forest_cat.png",
+			"source": "https://commons.wikimedia.org/wiki/File:Norwegian_forest_cat.png",
+			"license": "CC0"
+		},
+		{
+			"name": "cat_siamese.png",
+			"sent": true,
+			"sha256": "b080a9a2ae695e06776de9fe39840960ef0d546974aaa6c778374c76cfd314cd",
+			"url": "https://upload.wikimedia.org/wikipedia/commons/5/52/Gato_Siam%C3%A9s_Tradicional.png",
+			"source": "https://commons.wikimedia.org/wiki/File:Gato_Siam%C3%A9s_Tradicional.png",
+			"license": "CC0"
+		}
+	]
+}

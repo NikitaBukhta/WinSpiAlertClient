@@ -7,6 +7,7 @@
 #include "api/dto/EventRequestDto.h"
 #include "api/dto/StatusDto.h"
 #include "model/Image.h"
+#include "model/ImageSizePredictor.h"
 #include "utils/FileUtils.h"
 #include "utils/UuidGenerator.h"
 
@@ -21,8 +22,10 @@
 namespace app
 {
 
-SpialertService::SpialertService(std::unique_ptr<api::ISpialertApi> spialert_api)
-	: _spialert_api(std::move(spialert_api)), _random(std::random_device{}())
+SpialertService::SpialertService(std::unique_ptr<api::ISpialertApi> spialert_api,
+                                 std::unique_ptr<model::IImageCompressorFactory> compressor_factory)
+	: _spialert_api(std::move(spialert_api)), _compressor_factory(std::move(compressor_factory)),
+	  _random(std::random_device{}())
 {
 }
 
@@ -46,7 +49,7 @@ bool SpialertService::send_img(const std::filesystem::path& image_path)
 	return upload_image(*image, event->event_id);
 }
 
-std::optional<model::Image> SpialertService::load_image(const std::filesystem::path& image_path)
+std::optional<model::Image> SpialertService::load_image(const std::filesystem::path& image_path) const
 {
 	auto image = model::Image::load(image_path, MAX_IMAGE_READ_SIZE);
 	if (!image)
@@ -62,14 +65,40 @@ std::optional<model::Image> SpialertService::load_image(const std::filesystem::p
 		return std::nullopt;
 	}
 
-	// TODO: compress the image instead of rejecting it
-	if (image->size() > MAX_IMAGE_SIZE)
+	if (image->size() <= MAX_IMAGE_SIZE)
+		return image;
+
+	return shrink_image(*image);
+}
+
+std::optional<model::Image> SpialertService::shrink_image(const model::Image& image) const
+{
+	const auto compressor = _compressor_factory->create(image);
+	if (!compressor)
 	{
-		std::println(stderr, "{} is larger than {} bytes", image->file_name(), MAX_IMAGE_SIZE);
+		std::println(stderr, "{} is larger than {} bytes and cannot be decoded to shrink it", image.file_name(),
+		             MAX_IMAGE_SIZE);
 		return std::nullopt;
 	}
 
-	return image;
+	model::ImageSizePredictor predictor(image, MAX_IMAGE_SIZE, compressor->min_side(),
+	                                    compressor->decoded_pixel_ratio());
+	for (auto step = predictor.next_step(); step; step = predictor.next_step())
+	{
+		auto compressed = compressor->compress(step->scale, step->quality);
+		if (!compressed)
+		{
+			std::println(stderr, "Cannot re-encode {} to shrink it", image.file_name());
+			return std::nullopt;
+		}
+		if (compressed->size() <= MAX_IMAGE_SIZE)
+			return compressed;
+
+		predictor.add_measurement(compressed->size());
+	}
+
+	std::println(stderr, "{} does not fit into {} bytes even at the smallest size", image.file_name(), MAX_IMAGE_SIZE);
+	return std::nullopt;
 }
 
 std::optional<api::dto::EventObjectDto> SpialertService::create_event(const std::string& file_name)

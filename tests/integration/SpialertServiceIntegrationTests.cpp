@@ -1,17 +1,28 @@
 #include <gtest/gtest.h>
 
+#include <algorithm>
+#include <filesystem>
 #include <memory>
 #include <string>
+#include <vector>
+
+#include <rapidjson/document.h>
 
 #include "MockServerEnvironment.h"
 #include "api/SpialertApi.h"
 #include "api/dto/EventsListDto.h"
 #include "app/SpialertService.h"
+#include "model/WicImageCompressorFactory.h"
 #include "net/WinHttpClient.h"
+#include "tests/helpers/ImageCodec.h"
 #include "tests/helpers/TempFile.h"
+#include "utils/FileUtils.h"
 
 #define PNG_IMAGE "\x89PNG\r\n\x1a\nimage-bytes"
 #define DEFAULT_LIMIT 20
+#define LARGE_JPEG_WIDTH 4000
+#define LARGE_JPEG_HEIGHT 3000
+#define MAX_MANIFEST_SIZE (64 * 1024)
 
 using integration::MockServerEnvironment;
 using integration::MockServerTest;
@@ -25,7 +36,8 @@ protected:
 	void SetUp() override
 	{
 		MockServerTest::SetUp();
-		_service = std::make_unique<app::SpialertService>(make_api());
+		_service =
+			std::make_unique<app::SpialertService>(make_api(), std::make_unique<model::WicImageCompressorFactory>());
 		_events_api = make_api();
 	}
 
@@ -43,6 +55,37 @@ protected:
 
 	std::unique_ptr<app::SpialertService> _service;
 	std::unique_ptr<api::SpialertApi> _events_api;
+};
+
+struct RealImage
+{
+	std::string name;
+	bool sent{};
+};
+
+// images from tests/data/images.json, downloaded into TEST_IMAGES_DIR by scripts/project.py
+std::vector<RealImage> read_real_images()
+{
+	const auto json = utils::FileUtils::read_file(TEST_IMAGES_MANIFEST, MAX_MANIFEST_SIZE);
+	rapidjson::Document manifest;
+	if (!json || manifest.Parse(json->c_str()).HasParseError())
+		return {};
+
+	std::vector<RealImage> images;
+	for (const auto& image : manifest["images"].GetArray())
+		images.push_back({image["name"].GetString(), image["sent"].GetBool()});
+	return images;
+}
+
+std::string test_name(const testing::TestParamInfo<RealImage>& info)
+{
+	std::string name = info.param.name;
+	std::ranges::replace(name, '.', '_');
+	return name;
+}
+
+class RealImageIntegrationTests : public SpialertServiceIntegrationTests, public testing::WithParamInterface<RealImage>
+{
 };
 
 } // namespace
@@ -63,6 +106,22 @@ TEST_F(SpialertServiceIntegrationTests, SendImgCreatesEventWithUploadedImage)
 	EXPECT_EQ(events.items[0].file_name, "capture_0001.png");
 	EXPECT_TRUE(events.items[0].image_uploaded);
 	EXPECT_EQ(events.items[0].image_size, std::string(PNG_IMAGE).size());
+}
+
+TEST_F(SpialertServiceIntegrationTests, SendImgUploadsLargeJpegShrunkUnderTheServerLimit)
+{
+	const std::string jpeg = test_helpers::ImageCodec().noise(GUID_ContainerFormatJpeg, GUID_WICPixelFormat24bppBGR,
+	                                                          LARGE_JPEG_WIDTH, LARGE_JPEG_HEIGHT);
+	ASSERT_GT(jpeg.size(), 4 * MAX_IMAGE_SIZE);
+	const test_helpers::TempFile image("capture_0001.jpg", jpeg);
+
+	ASSERT_TRUE(_service->send_img(image.path()));
+
+	const auto events = list_events();
+	ASSERT_EQ(events.items.size(), 1u);
+	EXPECT_EQ(events.items[0].file_name, "capture_0001.jpg");
+	EXPECT_TRUE(events.items[0].image_uploaded);
+	EXPECT_LE(events.items[0].image_size, MAX_IMAGE_SIZE);
 }
 
 TEST_F(SpialertServiceIntegrationTests, SendImgSurvivesLostResponseWithoutDuplicate)
@@ -107,3 +166,26 @@ TEST_F(SpialertServiceIntegrationTests, SendImgRejectedFileNameCreatesNoUpload)
 
 	EXPECT_EQ(list_events().total, 0) << "the name breaks the server rules, so the client sends nothing";
 }
+
+TEST_P(RealImageIntegrationTests, SendImgShrinksOrRejectsRealImage)
+{
+	const auto& [name, sent] = GetParam();
+	const auto path = std::filesystem::path(TEST_IMAGES_DIR) / name;
+	ASSERT_TRUE(std::filesystem::exists(path))
+	    << path << " is missing: py scripts\\project.py integration downloads it";
+
+	EXPECT_EQ(_service->send_img(path), sent);
+
+	const auto events = list_events();
+	if (!sent)
+	{
+		EXPECT_EQ(events.total, 0);
+		return;
+	}
+	ASSERT_EQ(events.items.size(), 1u);
+	EXPECT_EQ(events.items[0].file_name, name);
+	EXPECT_TRUE(events.items[0].image_uploaded);
+	EXPECT_LE(events.items[0].image_size, MAX_IMAGE_SIZE);
+}
+
+INSTANTIATE_TEST_SUITE_P(RealImages, RealImageIntegrationTests, testing::ValuesIn(read_real_images()), test_name);

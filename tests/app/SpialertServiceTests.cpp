@@ -14,22 +14,45 @@
 #include "api/dto/EventsListDto.h"
 #include "api/dto/StatusDto.h"
 #include "app/SpialertService.h"
+#include "model/IImageCompressor.h"
+#include "model/IImageCompressorFactory.h"
 #include "model/Image.h"
+#include "model/WicImageCompressorFactory.h"
+#include "tests/helpers/ImageCodec.h"
 #include "tests/helpers/TempFile.h"
 
 #define EVENT_ID 42
 #define SEND_COUNT 50
 #define TIMESTAMP_TOLERANCE std::chrono::seconds{5}
 #define IMAGE_DATA "\x89PNG\r\n\x1a\nimage"
+#define MB (1024 * 1024)
+#define LARGE_SIDE 4000u
 
+using test_helpers::ImageCodec;
 using test_helpers::TempFile;
 using testing::_;
 using testing::AllOf;
+using testing::ByMove;
+using testing::Le;
 using testing::Property;
 using testing::Return;
 
 namespace
 {
+
+class MockImageCompressor : public model::IImageCompressor
+{
+public:
+	MOCK_METHOD(uint32_t, min_side, (), (const, override));
+	MOCK_METHOD(double, decoded_pixel_ratio, (), (const, override));
+	MOCK_METHOD(std::optional<model::Image>, compress, (double scale, float quality), (const, override));
+};
+
+class MockImageCompressorFactory : public model::IImageCompressorFactory
+{
+public:
+	MOCK_METHOD(std::unique_ptr<model::IImageCompressor>, create, (const model::Image& image), (const, override));
+};
 
 class MockSpialertApi : public api::ISpialertApi
 {
@@ -42,6 +65,13 @@ public:
 	MOCK_METHOD(api::ApiResponse<api::dto::EventObjectDto>, post_image, (const model::Image& image, int event_id),
 	            (override));
 };
+
+// a PNG of the given size as a compressor returns it
+model::Image compressed_png(size_t size)
+{
+	const std::string signature = IMAGE_DATA;
+	return model::Image("capture_0001.png", signature + std::string(size - signature.size(), 'x'));
+}
 
 api::ApiResponse<api::dto::StatusDto> status_response(int status_code, bool online)
 {
@@ -69,11 +99,26 @@ protected:
 	SpialertServiceTests()
 	{
 		auto spialert_api = std::make_unique<testing::StrictMock<MockSpialertApi>>();
+		auto compressor_factory = std::make_unique<testing::StrictMock<MockImageCompressorFactory>>();
 		_spialert_api = spialert_api.get();
-		_service = std::make_unique<app::SpialertService>(std::move(spialert_api));
+		_compressor_factory = compressor_factory.get();
+		_service = std::make_unique<app::SpialertService>(std::move(spialert_api), std::move(compressor_factory));
+	}
+
+	// the compressor the factory creates for the next image
+	testing::StrictMock<MockImageCompressor>& expect_compressor()
+	{
+		auto compressor = std::make_unique<testing::StrictMock<MockImageCompressor>>();
+		auto& reference = *compressor;
+		EXPECT_CALL(reference, min_side()).WillRepeatedly(Return(LARGE_SIDE));
+		EXPECT_CALL(reference, decoded_pixel_ratio()).WillRepeatedly(Return(1.0));
+		std::unique_ptr<model::IImageCompressor> created = std::move(compressor);
+		EXPECT_CALL(*_compressor_factory, create(_)).WillOnce(Return(ByMove(std::move(created))));
+		return reference;
 	}
 
 	testing::StrictMock<MockSpialertApi>* _spialert_api{};
+	testing::StrictMock<MockImageCompressorFactory>* _compressor_factory{};
 	std::unique_ptr<app::SpialertService> _service;
 	const TempFile _image{"capture_0001.png", IMAGE_DATA};
 };
@@ -224,11 +269,66 @@ TEST_F(SpialertServiceTests, SendImgMissingFileCreatesNoEvent)
 	EXPECT_FALSE(_service->send_img("Z:\\no\\such\\capture.png"));
 }
 
-TEST_F(SpialertServiceTests, SendImgFileOverFiveMegabytesCreatesNoEvent)
+TEST_F(SpialertServiceTests, SendImgUndecodableFileOverFiveMegabytesCreatesNoEvent)
 {
-	const TempFile large("large.png", IMAGE_DATA + std::string(MAX_IMAGE_SIZE, 'x'));
+	const TempFile large("capture_0001.png", IMAGE_DATA + std::string(MAX_IMAGE_SIZE, 'x'));
+	EXPECT_CALL(*_compressor_factory, create(_)).WillOnce([](const model::Image&) {
+		return std::unique_ptr<model::IImageCompressor>();
+	});
 
 	EXPECT_FALSE(_service->send_img(large.path()));
+}
+
+TEST_F(SpialertServiceTests, SendImgOverFiveMegabytesSendsTheFirstFittingAttempt)
+{
+	// the first attempt is too large, the second one fits: no more attempts
+	const TempFile large("capture_0001.png", IMAGE_DATA + std::string(MAX_IMAGE_SIZE, 'x'));
+	auto& compressor = expect_compressor();
+	EXPECT_CALL(compressor, compress(_, _))
+		.WillOnce(Return(compressed_png(6 * MB)))
+		.WillOnce(Return(compressed_png(2 * MB)));
+	EXPECT_CALL(*_spialert_api, post_events(testing::Field(&api::dto::EventRequestDto::file_name, "capture_0001.png")))
+		.WillOnce(Return(event_response(201)));
+	EXPECT_CALL(*_spialert_api, post_image(Property(&model::Image::size, 2 * MB), EVENT_ID))
+		.WillOnce(Return(event_response(200, true)));
+
+	EXPECT_TRUE(_service->send_img(large.path()));
+}
+
+TEST_F(SpialertServiceTests, SendImgThatNeverFitsCreatesNoEvent)
+{
+	const TempFile large("capture_0001.png", IMAGE_DATA + std::string(MAX_IMAGE_SIZE, 'x'));
+	auto& compressor = expect_compressor();
+	EXPECT_CALL(compressor, compress(_, _))
+		.Times(testing::Between(1, 4))
+		.WillRepeatedly(Return(compressed_png(6 * MB)));
+
+	EXPECT_FALSE(_service->send_img(large.path()));
+}
+
+TEST_F(SpialertServiceTests, SendImgThatCannotBeReencodedCreatesNoEvent)
+{
+	const TempFile large("capture_0001.png", IMAGE_DATA + std::string(MAX_IMAGE_SIZE, 'x'));
+	auto& compressor = expect_compressor();
+	EXPECT_CALL(compressor, compress(_, _)).WillOnce(Return(std::nullopt));
+
+	EXPECT_FALSE(_service->send_img(large.path()));
+}
+
+TEST(SpialertServiceWicTests, SendImgTwentyMegabyteJpegIsShrunkAndSent)
+{
+	auto spialert_api = std::make_unique<testing::StrictMock<MockSpialertApi>>();
+	auto& api = *spialert_api;
+	app::SpialertService service(std::move(spialert_api), std::make_unique<model::WicImageCompressorFactory>());
+	const std::string jpeg = ImageCodec().noise(GUID_ContainerFormatJpeg, GUID_WICPixelFormat24bppBGR, 4000, 3000);
+	ASSERT_GT(jpeg.size(), 4 * MAX_IMAGE_SIZE);
+	const TempFile large("capture_0001.jpg", jpeg);
+	EXPECT_CALL(api, post_events(_)).WillOnce(Return(event_response(201)));
+	const auto shrunk = AllOf(Property(&model::Image::file_name, "capture_0001.jpg"),
+	                          Property(&model::Image::size, Le(MAX_IMAGE_SIZE)));
+	EXPECT_CALL(api, post_image(shrunk, EVENT_ID)).WillOnce(Return(event_response(200, true)));
+
+	EXPECT_TRUE(service.send_img(large.path()));
 }
 
 TEST_F(SpialertServiceTests, SendImgUnsupportedExtensionCreatesNoEvent)

@@ -55,3 +55,31 @@ py scripts\project.py test          :: C++ unit tests, offline
 py scripts\project.py integration   :: client against the mock server, needs mock_server.py install-cert
 py scripts\project.py coverage      :: C++ line coverage of both, needs OpenCppCoverage
 ```
+
+## Large images
+
+An image over 5 MB is shrunk before the upload. It keeps its format and name, only the quality and the resolution
+change (`model/WicImageCompressor`, `model/ImageSizePredictor`):
+
+1. A JPEG at most 1.5x over the limit is re-encoded at quality 0.75.
+2. Then the resolution goes down at quality 0.75, each step estimated from the previous size.
+3. The last try is quality 0.6 with the shorter side at 640 px. If it still does not fit, the image is rejected.
+
+There are at most 4 encodes. The EXIF orientation is applied to the pixels and the rest of the metadata is dropped.
+Images over 400 megapixels are rejected, images over 24 megapixels are shrunk while being decoded.
+
+The integration tests also send real photos from Wikimedia Commons (CC0 and public domain, listed in
+`tests/data/images.json`). `py scripts\project.py integration` downloads them into `build\test-images` on the first run.
+
+## Possible improvements
+
+We don't know yet what images the client will get, so the compression is kept simple. Things to add once we do:
+
+- Search the JPEG quality between 0.75 and 0.95 instead of always using 0.75.
+- Make one more, larger attempt when a result leaves much of the 5 MB unused.
+- Keep the RGB color profile, so wide gamut photos (Display P3, Adobe RGB) do not look washed out.
+- Convert CMYK JPEG through its color profile (`IWICColorTransform`) instead of the plain converter.
+- Keep gray images gray and opaque PNG without alpha, which makes the files smaller.
+- Skip the useless re-encode of a PNG whose shorter side is already 640 px or less.
+- Check the thresholds (0.75, 0.6, 640 px, 4 encodes, 24 and 400 megapixels) on real captures and move them to
+  `secret/config.json`.

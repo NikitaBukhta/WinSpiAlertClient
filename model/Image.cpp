@@ -39,6 +39,14 @@ size_t Image::size() const noexcept
 	return _data.size();
 }
 
+std::optional<Image::FormatEnum> Image::format() const
+{
+	if (!is_valid())
+		return std::nullopt;
+
+	return find_format()->format;
+}
+
 std::optional<std::string_view> Image::content_type() const
 {
 	if (!is_valid())
@@ -49,7 +57,7 @@ std::optional<std::string_view> Image::content_type() const
 
 std::optional<std::string> Image::validation_error() const
 {
-	const Format* format = find_format();
+	const FormatInfo* format = find_format();
 	if (!format)
 		return std::format("{}: unsupported extension, expected {}", _file_name, supported_extensions());
 	if (!has_valid_name())
@@ -61,13 +69,13 @@ std::optional<std::string> Image::validation_error() const
 	return std::nullopt;
 }
 
-const Image::Format* Image::find_format() const
+const Image::FormatInfo* Image::find_format() const
 {
 	const size_t dot = _file_name.rfind('.');
 	const bool has_extension = dot != std::string::npos && dot > 0;
 	const std::string_view extension = has_extension ? std::string_view(_file_name).substr(dot) : std::string_view{};
 
-	for (const Format& format : SUPPORTED_FORMATS)
+	for (const FormatInfo& format : SUPPORTED_FORMATS)
 	{
 		if (extension == format.extension)
 			return &format;
@@ -77,7 +85,7 @@ const Image::Format* Image::find_format() const
 
 bool Image::is_valid() const
 {
-	const Format* format = find_format();
+	const FormatInfo* format = find_format();
 	return format && has_valid_name() && _data.starts_with(format->signature);
 }
 
@@ -88,7 +96,7 @@ bool Image::has_valid_name() const
 	return length_valid && std::ranges::all_of(name, is_name_char);
 }
 
-bool Image::is_name_char(char c)
+bool Image::is_name_char(const char c)
 {
 	const bool letter = (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z');
 	const bool digit = c >= '0' && c <= '9';
@@ -98,7 +106,7 @@ bool Image::is_name_char(char c)
 std::string Image::supported_extensions()
 {
 	std::string extensions;
-	for (const Format& format : SUPPORTED_FORMATS)
+	for (const FormatInfo& format : SUPPORTED_FORMATS)
 	{
 		if (!extensions.empty())
 			extensions += EXTENSION_SEPARATOR;

@@ -32,6 +32,14 @@ add_library(
 	net/MultipartBuilder.h
 	model/Image.cpp
 	model/Image.h
+	model/IImageCompressor.h
+	model/IImageCompressorFactory.h
+	model/WicImageCompressor.cpp
+	model/WicImageCompressor.h
+	model/WicImageCompressorFactory.cpp
+	model/WicImageCompressorFactory.h
+	model/ImageSizePredictor.cpp
+	model/ImageSizePredictor.h
 	api/ApiResponse.h
 	api/ISpialertApi.h
 	api/SpialertApi.cpp
@@ -45,6 +53,8 @@ add_library(
 	utils/UuidGenerator.h
 	utils/FileUtils.cpp
 	utils/FileUtils.h
+	utils/ComScope.cpp
+	utils/ComScope.h
 	api/dto/SaxHandler.h
 	api/dto/EventObjectDto.h
 	api/dto/EventRequestDto.h
@@ -54,7 +64,7 @@ add_library(
 )
 
 target_include_directories(client_core PUBLIC ${rapidjson_SOURCE_DIR}/include ${CMAKE_CURRENT_SOURCE_DIR})
-target_link_libraries(client_core PUBLIC winhttp rpcrt4)
+target_link_libraries(client_core PUBLIC winhttp rpcrt4 windowscodecs ole32)
 
 add_executable(client main.cpp)
 target_link_libraries(client PRIVATE client_core)
@@ -89,6 +99,9 @@ if(WINSPIALERT_BUILD_TESTS)
 		tests/api/dto/StatusDtoTests.cpp
 		tests/net/WinHttpClientTests.cpp
 		tests/model/ImageTests.cpp
+		tests/model/WicImageCompressorTests.cpp
+		tests/model/ImageSizePredictorTests.cpp
+		tests/helpers/ImageCodec.h
 		tests/net/MultipartBuilderTests.cpp
 		tests/utils/FileUtilsTests.cpp
 		tests/utils/StringUtilsTests.cpp
@@ -122,6 +135,8 @@ if(WINSPIALERT_BUILD_TESTS)
 		PRIVATE MOCK_SERVER_PYTHON="${CMAKE_SOURCE_DIR}/.venv/Scripts/python.exe"
 				MOCK_SERVER_SCRIPT="${CMAKE_SOURCE_DIR}/scripts/mock_server.py"
 				MOCK_SERVER_LOG="${CMAKE_CURRENT_BINARY_DIR}/mock_server.log"
+				TEST_IMAGES_MANIFEST="${CMAKE_SOURCE_DIR}/tests/data/images.json"
+				TEST_IMAGES_DIR="${CMAKE_BINARY_DIR}/test-images"
 	)
 
 	add_test(NAME client_integration_tests COMMAND client_integration_tests)

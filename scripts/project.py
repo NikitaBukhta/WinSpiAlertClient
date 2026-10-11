@@ -1,4 +1,4 @@
-import argparse, os, shutil, subprocess, sys, venv
+import argparse, hashlib, json, os, shutil, subprocess, sys, time, urllib.error, urllib.request, venv
 from xml.etree import ElementTree
 from pathlib import Path
 
@@ -10,6 +10,11 @@ SKIP = {".venv", ".vs", ".idea", ".git", "build", "out", "_deps"}
 CPP = {".c", ".cc", ".cpp", ".cxx", ".h", ".hh", ".hpp", ".hxx", ".inl", ".ipp"}
 COVERAGE_TOOL = Path(os.environ.get("ProgramFiles", r"C:\Program Files")) / "OpenCppCoverage" / "OpenCppCoverage.exe"
 COVERAGE_DIR = ROOT / "build" / "coverage"
+TEST_IMAGES_MANIFEST = ROOT / "tests" / "data" / "images.json"
+TEST_IMAGES_DIR = ROOT / "build" / "test-images"
+DOWNLOAD_AGENT = "WinSpiAlertClient-tests/1.0"
+DOWNLOAD_ATTEMPTS = 6
+DOWNLOAD_RETRY_SECONDS = 30
 
 
 def run(*cmd, check=True):
@@ -52,6 +57,34 @@ def format_all(check):
     print(f"{'Checked' if check else 'Formatted'}: {len(cpp)} C++, {len(cmake)} CMake, {len(py)} Python files")
     if failed:
         sys.exit(1)
+
+
+def download(url):
+    for attempt in range(DOWNLOAD_ATTEMPTS):
+        try:
+            request = urllib.request.Request(url, headers={"User-Agent": DOWNLOAD_AGENT})
+            with urllib.request.urlopen(request, timeout=600) as response:
+                return response.read()
+        except urllib.error.HTTPError as error:
+            # Wikimedia answers 429 to several large downloads in a row
+            if error.code != 429 or attempt == DOWNLOAD_ATTEMPTS - 1:
+                raise
+            delay = int(error.headers.get("Retry-After") or DOWNLOAD_RETRY_SECONDS)
+            print(f"rate limited, retrying in {delay} s")
+            time.sleep(delay)
+
+
+def fetch_test_images():
+    TEST_IMAGES_DIR.mkdir(parents=True, exist_ok=True)
+    for image in json.loads(TEST_IMAGES_MANIFEST.read_text(encoding="utf-8"))["images"]:
+        target = TEST_IMAGES_DIR / image["name"]
+        if target.exists() and hashlib.sha256(target.read_bytes()).hexdigest() == image["sha256"]:
+            continue
+        print(f"downloading {image['name']}")
+        data = download(image["url"])
+        if hashlib.sha256(data).hexdigest() != image["sha256"]:
+            sys.exit(f"{image['name']}: the downloaded file does not match the SHA-256 in {TEST_IMAGES_MANIFEST}")
+        target.write_bytes(data)
 
 
 def find_coverage_tool():
@@ -122,7 +155,7 @@ COMMANDS = {
     "configure": "generate the build directory (cmake -S . -B build)",
     "build": "configure and build the project",
     "test": "build and run the unit tests: C++ (GoogleTest via ctest)",
-    "integration": "build and run the client against the mock server (needs: mock_server.py install-cert)",
+    "integration": "build and run the client against the mock server (needs: mock_server.py install-cert; downloads the test images once)",
     "coverage": "build and measure C++ line coverage of unit + integration tests (needs OpenCppCoverage)",
     "format": "format C++ (clang-format), CMake (cmake-format) and Python (ruff) files in place",
     "check": "check formatting without changes, exit code 1 if something is not formatted",
@@ -170,6 +203,8 @@ def main():
         run(BIN / "cmake", "--build", ROOT / "build", "--config", config)
     if cmd == "test":
         run_ctest(config, "--label-exclude", "integration")
+    if cmd in ("integration", "coverage"):
+        fetch_test_images()
     if cmd == "integration":
         run_ctest(config, "--label-regex", "integration")
     if cmd == "coverage":

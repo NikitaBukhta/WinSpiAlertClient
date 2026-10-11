@@ -4,6 +4,7 @@
 
 #include "api/SpialertApi.h"
 #include "app/SpialertService.h"
+#include "model/WicImageCompressorFactory.h"
 #include "net/WinHttpClient.h"
 #include "utils/FileUtils.h"
 
@@ -20,7 +21,8 @@ int wmain(int argc, wchar_t** argv)
 {
 	auto http_client = std::make_unique<net::WinHttpClient>(SERVER_HOST, USER_AGENT, SERVER_PORT);
 	app::SpialertService spialert_service(
-		std::make_unique<api::SpialertApi>(std::move(http_client), API_BASE_PATH, API_KEY));
+		std::make_unique<api::SpialertApi>(std::move(http_client), API_BASE_PATH, API_KEY),
+		std::make_unique<model::WicImageCompressorFactory>());
 
 	const bool online = spialert_service.is_online();
 	std::println("Server is {}", online ? "online" : "not online");
