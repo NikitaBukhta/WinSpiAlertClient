@@ -28,7 +28,12 @@ add_library(
 	net/IHttpClient.h
 	net/WinHttpClient.cpp
 	net/WinHttpClient.h
-	api/ISpialertAPI.h
+	net/MultipartBuilder.cpp
+	net/MultipartBuilder.h
+	model/Image.cpp
+	model/Image.h
+	api/ApiResponse.h
+	api/ISpialertApi.h
 	api/SpialertApi.cpp
 	api/SpialertApi.h
 	api/dto/StatusDto.h
@@ -36,9 +41,16 @@ add_library(
 	utils/TimeParser.h
 	utils/StringUtils.cpp
 	utils/StringUtils.h
-	utils/RapidjsonHelper.h
+	utils/UuidGenerator.cpp
+	utils/UuidGenerator.h
+	utils/FileUtils.cpp
+	utils/FileUtils.h
+	api/dto/SaxHandler.h
 	api/dto/EventObjectDto.h
+	api/dto/EventRequestDto.h
 	api/dto/EventsListDto.h
+	app/SpialertService.cpp
+	app/SpialertService.h
 )
 
 target_include_directories(client_core PUBLIC ${rapidjson_SOURCE_DIR}/include ${CMAKE_CURRENT_SOURCE_DIR})
@@ -68,9 +80,20 @@ if(WINSPIALERT_BUILD_TESTS)
 
 	add_executable(
 		client_tests
-		tests/api/ApiResponseTests.cpp tests/api/SpialertApiTests.cpp tests/api/dto/EventObjectDtoTests.cpp
-		tests/api/dto/EventsListDtoTests.cpp tests/api/dto/StatusDtoTests.cpp tests/net/WinHttpClientTests.cpp
-		tests/utils/StringUtilsTests.cpp tests/utils/TimeParserTests.cpp
+		tests/api/ApiResponseTests.cpp
+		tests/api/SpialertApiTests.cpp
+		tests/app/SpialertServiceTests.cpp
+		tests/api/dto/EventObjectDtoTests.cpp
+		tests/api/dto/EventRequestDtoTests.cpp
+		tests/api/dto/EventsListDtoTests.cpp
+		tests/api/dto/StatusDtoTests.cpp
+		tests/net/WinHttpClientTests.cpp
+		tests/model/ImageTests.cpp
+		tests/net/MultipartBuilderTests.cpp
+		tests/utils/FileUtilsTests.cpp
+		tests/utils/StringUtilsTests.cpp
+		tests/utils/TimeParserTests.cpp
+		tests/utils/UuidGeneratorTests.cpp
 	)
 	target_link_libraries(client_tests PRIVATE client_core GTest::gtest_main GTest::gmock)
 
@@ -83,9 +106,14 @@ if(WINSPIALERT_BUILD_TESTS)
 
 	add_executable(
 		client_integration_tests
-		tests/helpers/MockServerProcess.cpp tests/helpers/MockServerProcess.h tests/integration/main.cpp
-		tests/integration/MockServerEnvironment.cpp tests/integration/MockServerEnvironment.h
-		tests/integration/SpialertApiIntegrationTests.cpp tests/integration/WinHttpClientIntegrationTests.cpp
+		tests/helpers/MockServerProcess.cpp
+		tests/helpers/MockServerProcess.h
+		tests/integration/main.cpp
+		tests/integration/MockServerEnvironment.cpp
+		tests/integration/MockServerEnvironment.h
+		tests/integration/SpialertApiIntegrationTests.cpp
+		tests/integration/SpialertServiceIntegrationTests.cpp
+		tests/integration/WinHttpClientIntegrationTests.cpp
 	)
 
 	target_link_libraries(client_integration_tests PRIVATE client_core GTest::gtest ws2_32)

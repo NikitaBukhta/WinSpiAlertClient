@@ -1,11 +1,11 @@
-#ifndef WINSPIALERTCLIENT_RAPIDJSONHELPER_H
-#define WINSPIALERTCLIENT_RAPIDJSONHELPER_H
+#ifndef WINSPIALERTCLIENT_SAXHANDLER_H
+#define WINSPIALERTCLIENT_SAXHANDLER_H
 
 #include <string_view>
 
 #include "rapidjson/reader.h"
 
-namespace utils
+namespace api::dto
 {
 
 // NOTE: SAX parser https://rapidjson.org/md_doc_sax.html
@@ -88,6 +88,6 @@ struct BaseSaxHandler
 	}
 };
 
-} // namespace utils
+} // namespace api::dto
 
-#endif // WINSPIALERTCLIENT_RAPIDJSONHELPER_H
+#endif // WINSPIALERTCLIENT_SAXHANDLER_H

@@ -4,8 +4,8 @@
 #include <string>
 #include <string_view>
 
+#include "SaxHandler.h"
 #include "utils/TimeParser.h"
-#include "utils/RapidjsonHelper.h"
 
 namespace api::dto
 {
@@ -25,7 +25,7 @@ struct EventObjectDto
 	utils::time_point image_uploaded_at;
 };
 
-struct EventObjectHandler : utils::BaseSaxHandler<EventObjectHandler>
+struct EventObjectHandler : BaseSaxHandler<EventObjectHandler>
 {
 	EventObjectDto& dto;
 
@@ -33,7 +33,7 @@ struct EventObjectHandler : utils::BaseSaxHandler<EventObjectHandler>
 	{
 	}
 
-	bool Bool(bool val)
+	[[nodiscard]] bool Bool(const bool val) const
 	{
 		if (current_key == "image_uploaded")
 			dto.image_uploaded = val;
@@ -41,7 +41,7 @@ struct EventObjectHandler : utils::BaseSaxHandler<EventObjectHandler>
 	}
 
 	// NOTE: rapidjson reports non-negative integers via Uint/Uint64, negative ones via Int/Int64
-	bool Int(int val)
+	[[nodiscard]] bool Int(const int val) const
 	{
 		if (current_key == "event_id")
 			dto.event_id = val;
@@ -50,7 +50,7 @@ struct EventObjectHandler : utils::BaseSaxHandler<EventObjectHandler>
 		return true;
 	}
 
-	bool Uint(unsigned val)
+	[[nodiscard]] bool Uint(const unsigned val) const
 	{
 		if (current_key == "image_size")
 			dto.image_size = val;
@@ -59,14 +59,14 @@ struct EventObjectHandler : utils::BaseSaxHandler<EventObjectHandler>
 		return true;
 	}
 
-	bool Uint64(uint64_t val)
+	[[nodiscard]] bool Uint64(const uint64_t val) const
 	{
 		if (current_key == "image_size")
 			dto.image_size = static_cast<size_t>(val);
 		return true;
 	}
 
-	bool String(const char* str, rapidjson::SizeType length, bool copy)
+	bool String(const char* str, const rapidjson::SizeType length, bool copy) const
 	{
 		const std::string_view val(str, length);
 

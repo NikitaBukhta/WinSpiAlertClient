@@ -2,11 +2,12 @@
 
 #include <charconv>
 #include <chrono>
+#include <format>
 
 namespace utils
 {
 
-time_point TimeParser::parse_iso8601(std::string_view date_str)
+time_point TimeParser::parse_iso8601(const std::string_view date_str)
 {
 	if (date_str.length() < ISO8601_NO_MS_LEN)
 		return {};
@@ -36,6 +37,11 @@ time_point TimeParser::parse_iso8601(std::string_view date_str)
 	                           std::chrono::milliseconds{millisec};
 
 	return std::chrono::sys_days{date} + time_duration;
+}
+
+std::string TimeParser::format_iso8601(const time_point time)
+{
+	return std::format("{:%FT%T}Z", std::chrono::floor<std::chrono::milliseconds>(time));
 }
 
 bool TimeParser::parse_field(std::string_view str, size_t offset, size_t length, int& value)

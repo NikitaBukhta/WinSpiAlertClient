@@ -36,15 +36,16 @@ public:
 	WinHttpClient& operator=(const WinHttpClient& other) = delete;
 	WinHttpClient& operator=(WinHttpClient&& other) noexcept = delete;
 
-	bool open() override;
-	bool close() override;
-	HttpResponse send_request(const std::string& path, const std::string& method, const std::string& body,
-	                          const std::string& headers) override;
+	HttpResponse send_request(const std::string& path, const std::string& method,
+	                          std::span<const std::string_view> body_parts, const std::string& headers) override;
 
 private:
+	std::expected<void, DWORD> open_connection();
 	[[nodiscard]] std::expected<HInternetPtr, DWORD> open_request(const std::string& method,
 	                                                              const std::string& path) const;
-	static std::expected<void, DWORD> send(HINTERNET request, const std::string& headers, const std::string& body);
+	static std::expected<void, DWORD> send(HINTERNET request, const std::string& headers,
+	                                       std::span<const std::string_view> body_parts);
+	static std::expected<void, DWORD> write_data(HINTERNET request, std::string_view data);
 	static std::expected<HttpResponse, DWORD> read_response(HINTERNET request);
 
 	static HttpResponse make_error(DWORD error_code);

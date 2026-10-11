@@ -2,6 +2,7 @@
 #define WINSPIALERTCLIENT_TIMEPARSER_H
 
 #include <chrono>
+#include <string>
 #include <string_view>
 
 // str size for "yyyy-mm-ddThh:mm:ss.000Z"
@@ -40,8 +41,8 @@ using time_point = std::chrono::system_clock::time_point;
 class TimeParser
 {
 public:
-	// Accepts "yyyy-mm-ddThh:mm:ss.000Z" and "yyyy-mm-ddThh:mm:ssZ"; returns time_point{} on invalid input
 	static time_point parse_iso8601(std::string_view date_str);
+	static std::string format_iso8601(time_point time);
 
 private:
 	static bool parse_field(std::string_view str, size_t offset, size_t length, int& value);

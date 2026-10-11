@@ -4,8 +4,8 @@
 #include <string>
 #include <string_view>
 
+#include "SaxHandler.h"
 #include "utils/TimeParser.h"
-#include "utils/RapidjsonHelper.h"
 
 #define SERVER_STATUS_ONLINE "online"
 
@@ -20,7 +20,7 @@ struct StatusDto
 	std::string candidate;
 };
 
-struct StatusDtoHandler : utils::BaseSaxHandler<StatusDtoHandler>
+struct StatusDtoHandler : BaseSaxHandler<StatusDtoHandler>
 {
 	StatusDto& dto;
 

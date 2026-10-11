@@ -6,6 +6,7 @@
 
 using utils::StringUtils;
 
+// TODO: move the timeouts to secret/config.json, pass to WinHttpClient
 #define RESOLVE_TIMEOUT_MS 10'000
 #define CONNECT_TIMEOUT_MS 10'000
 #define SEND_TIMEOUT_MS 30'000
@@ -23,52 +24,47 @@ WinHttpClient::WinHttpClient(const std::string& host, const std::string& user_ag
 
 WinHttpClient::~WinHttpClient() = default;
 
-bool WinHttpClient::open()
-{
-	close();
-
-	HInternetPtr session{WinHttpOpen(_user_agent.c_str(), WINHTTP_ACCESS_TYPE_AUTOMATIC_PROXY, WINHTTP_NO_PROXY_NAME,
-	                                 WINHTTP_NO_PROXY_BYPASS, 0)};
-	if (!session)
-		return false;
-
-	const BOOL timeouts_set =
-		WinHttpSetTimeouts(session.get(), RESOLVE_TIMEOUT_MS, CONNECT_TIMEOUT_MS, SEND_TIMEOUT_MS, RECEIVE_TIMEOUT_MS);
-	if (!timeouts_set)
-		return false;
-
-	HInternetPtr connect{WinHttpConnect(session.get(), _host.c_str(), _port, 0)};
-	if (!connect)
-		return false;
-
-	_hSession = std::move(session);
-	_hConnect = std::move(connect);
-	return true;
-}
-
-bool WinHttpClient::close()
-{
-	_hConnect.reset();
-	_hSession.reset();
-	return true;
-}
-
-HttpResponse WinHttpClient::send_request(const std::string& path, const std::string& method, const std::string& body,
-                                         const std::string& headers)
+HttpResponse WinHttpClient::send_request(const std::string& path, const std::string& method,
+                                         std::span<const std::string_view> body_parts, const std::string& headers)
 {
 	if (!_hConnect)
-		return make_error(ERROR_WINHTTP_INCORRECT_HANDLE_STATE);
+	{
+		const auto opened = open_connection();
+		if (!opened)
+			return make_error(opened.error());
+	}
 
 	const auto request = open_request(method, path);
 	if (!request)
 		return make_error(request.error());
 
-	const auto sent = send(request->get(), headers, body);
+	const auto sent = send(request->get(), headers, body_parts);
 	if (!sent)
 		return make_error(sent.error());
 
 	const auto response = read_response(request->get());
 	return response ? *response : make_error(response.error());
+}
+
+std::expected<void, DWORD> WinHttpClient::open_connection()
+{
+	HInternetPtr session{WinHttpOpen(_user_agent.c_str(), WINHTTP_ACCESS_TYPE_AUTOMATIC_PROXY, WINHTTP_NO_PROXY_NAME,
+	                                 WINHTTP_NO_PROXY_BYPASS, 0)};
+	if (!session)
+		return std::unexpected(GetLastError());
+
+	const BOOL timeouts_set =
+		WinHttpSetTimeouts(session.get(), RESOLVE_TIMEOUT_MS, CONNECT_TIMEOUT_MS, SEND_TIMEOUT_MS, RECEIVE_TIMEOUT_MS);
+	if (!timeouts_set)
+		return std::unexpected(GetLastError());
+
+	HInternetPtr connect{WinHttpConnect(session.get(), _host.c_str(), _port, 0)};
+	if (!connect)
+		return std::unexpected(GetLastError());
+
+	_hSession = std::move(session);
+	_hConnect = std::move(connect);
+	return {};
 }
 
 std::expected<HInternetPtr, DWORD> WinHttpClient::open_request(const std::string& method, const std::string& path) const
@@ -91,20 +87,44 @@ std::expected<HInternetPtr, DWORD> WinHttpClient::open_request(const std::string
 }
 
 std::expected<void, DWORD> WinHttpClient::send(const HINTERNET request, const std::string& headers,
-                                               const std::string& body)
+                                               std::span<const std::string_view> body_parts)
 {
 	const std::wstring w_headers = StringUtils::to_wide(headers);
-	const auto body_size = static_cast<DWORD>(body.size());
+	DWORD body_size{};
+	for (const std::string_view part : body_parts)
+		body_size += static_cast<DWORD>(part.size());
 
-	// NOTE: WinHttpSendRequest takes a non-const pointer, but does not modify the body
+	// the total length goes into Content-Length, the parts are written after the headers
 	const BOOL sent = WinHttpSendRequest(request, w_headers.c_str(), static_cast<DWORD>(w_headers.size()),
-	                                     const_cast<char*>(body.data()), body_size, body_size, 0);
+	                                     WINHTTP_NO_REQUEST_DATA, 0, body_size, 0);
 	if (!sent)
 		return std::unexpected(GetLastError());
+
+	for (const std::string_view part : body_parts)
+	{
+		const auto written = write_data(request, part);
+		if (!written)
+			return written;
+	}
 
 	const BOOL received = WinHttpReceiveResponse(request, nullptr);
 	if (!received)
 		return std::unexpected(GetLastError());
+
+	return {};
+}
+
+std::expected<void, DWORD> WinHttpClient::write_data(const HINTERNET request, std::string_view data)
+{
+	if (data.empty())
+		return {};
+
+	DWORD written{};
+	const BOOL ok = WinHttpWriteData(request, data.data(), static_cast<DWORD>(data.size()), &written);
+	if (!ok)
+		return std::unexpected(GetLastError());
+	if (written != data.size())
+		return std::unexpected(static_cast<DWORD>(ERROR_WINHTTP_CONNECTION_ERROR));
 
 	return {};
 }

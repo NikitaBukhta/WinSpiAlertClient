@@ -3,7 +3,9 @@
 
 #include <chrono>
 #include <optional>
+#include <span>
 #include <string>
+#include <string_view>
 
 namespace net
 {
@@ -26,10 +28,8 @@ class IHttpClient
 {
 public:
 	virtual ~IHttpClient() = default;
-	virtual bool open() = 0;
-	virtual bool close() = 0;
-	virtual HttpResponse send_request(const std::string& path, const std::string& method, const std::string& body,
-	                                  const std::string& headers) = 0;
+	virtual HttpResponse send_request(const std::string& path, const std::string& method,
+	                                  std::span<const std::string_view> body_parts, const std::string& headers) = 0;
 };
 
 } // namespace net
