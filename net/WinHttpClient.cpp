@@ -142,7 +142,8 @@ std::expected<HttpResponse, DWORD> WinHttpClient::read_response(const HINTERNET 
 	if (!body_complete)
 		return std::unexpected(static_cast<DWORD>(ERROR_WINHTTP_CONNECTION_ERROR));
 
-	response.status_code = *status_code;
+	response.status_code = static_cast<uint16_t>(*status_code);
+	response.message = query_text_header(request, WINHTTP_QUERY_STATUS_TEXT);
 
 	// NOTE: WINHTTP_QUERY_RETRY_AFTER does not support WINHTTP_QUERY_FLAG_NUMBER (fails with 12154), query it by name
 	if (const auto retry_after = query_number_header(request, WINHTTP_QUERY_CUSTOM, RETRY_AFTER_HEADER))
@@ -163,7 +164,7 @@ HttpResponse WinHttpClient::make_error(const DWORD error_code)
 
 	HttpResponse response;
 	response.error_code = error_code;
-	response.error_message = std::string(text.data(), length) + "(error " + std::to_string(error_code) + ")";
+	response.message = std::string(text.data(), length) + "(error " + std::to_string(error_code) + ")";
 	return response;
 }
 
@@ -178,6 +179,26 @@ std::optional<DWORD> WinHttpClient::query_number_header(const HINTERNET request,
 		return std::nullopt;
 
 	return value;
+}
+
+std::string WinHttpClient::query_text_header(const HINTERNET request, const DWORD header)
+{
+	// NOTE: the first call only reports the size in bytes and fails with ERROR_INSUFFICIENT_BUFFER
+	DWORD size{};
+	WinHttpQueryHeaders(request, header, WINHTTP_HEADER_NAME_BY_INDEX, WINHTTP_NO_OUTPUT_BUFFER, &size,
+	                    WINHTTP_NO_HEADER_INDEX);
+	const bool has_value = GetLastError() == ERROR_INSUFFICIENT_BUFFER && size > 0;
+	if (!has_value)
+		return {};
+
+	std::wstring value(size / sizeof(wchar_t), L'\0');
+	const BOOL found = WinHttpQueryHeaders(request, header, WINHTTP_HEADER_NAME_BY_INDEX, value.data(), &size,
+	                                       WINHTTP_NO_HEADER_INDEX);
+	if (!found)
+		return {};
+
+	value.resize(size / sizeof(wchar_t));
+	return StringUtils::to_utf8(value);
 }
 
 bool WinHttpClient::read_body(const HINTERNET request, std::string& body)

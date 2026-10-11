@@ -1,6 +1,11 @@
 #ifndef WINSPIALERTCLIENT_APIRESPONSE_H
 #define WINSPIALERTCLIENT_APIRESPONSE_H
 
+#include <chrono>
+#include <optional>
+
+#include "ApiError.h"
+
 namespace api
 {
 
@@ -9,6 +14,8 @@ struct ApiResponse
 {
 	DtoType dto;
 	int status_code{};
+	std::optional<ApiError> error;
+	std::optional<std::chrono::seconds> retry_after;
 
 	[[nodiscard]] bool is_success() const noexcept
 	{

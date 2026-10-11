@@ -78,23 +78,45 @@ void CommandRunner::create_service(const ClientConfig& config)
 
 int CommandRunner::run_status() const
 {
-	const bool online = _service->is_online();
-	std::println("Server is {}", online ? "online" : "not online");
-	return online ? EXIT_SUCCESS : EXIT_FAILURE;
+	const auto state = _service->is_online();
+	if (!state)
+	{
+		std::println(stderr, "{}", state.error());
+		return EXIT_FAILURE;
+	}
+
+	switch (*state)
+	{
+	case app::SpialertService::ServerStateEnum::ONLINE_STATE:
+		std::println("Server is online");
+		return EXIT_SUCCESS;
+	case app::SpialertService::ServerStateEnum::OFFLINE_STATE:
+		break;
+	}
+	std::println("Server is not online");
+	return EXIT_FAILURE;
 }
 
 int CommandRunner::run_send(const std::filesystem::path& image_path) const
 {
-	if (!_service->is_online())
+	const auto state = _service->is_online();
+	if (!state)
+	{
+		std::println(stderr, "{}", state.error());
+		return EXIT_FAILURE;
+	}
+	// TODO: wait for an offline server with the backoff of send_with_retry instead of failing at once
+	if (*state != app::SpialertService::ServerStateEnum::ONLINE_STATE)
 	{
 		std::println(stderr, "Server is not online");
 		return EXIT_FAILURE;
 	}
 
 	const std::string image_name = utils::FileUtils::to_utf8(image_path);
-	if (!_service->send_img(image_path))
+	const auto sent = _service->send_img(image_path);
+	if (!sent)
 	{
-		std::println(stderr, "Failed to send {}", image_name);
+		std::println(stderr, "Failed to send {}: {}", image_name, sent.error());
 		return EXIT_FAILURE;
 	}
 

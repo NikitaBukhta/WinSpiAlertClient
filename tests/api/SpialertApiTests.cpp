@@ -46,7 +46,7 @@ public:
 	            (override));
 };
 
-net::HttpResponse http_response(unsigned long status_code, std::string body)
+net::HttpResponse http_response(uint16_t status_code, std::string body)
 {
 	net::HttpResponse response;
 	response.status_code = status_code;
@@ -74,11 +74,11 @@ auto save_body(std::string* body)
 	return testing::WithArg<2>([body](std::span<const std::string_view> parts) { *body = RequestBody::join(parts); });
 }
 
-net::HttpResponse network_error(unsigned long error_code)
+net::HttpResponse network_error(uint32_t error_code)
 {
 	net::HttpResponse response;
 	response.error_code = error_code;
-	response.error_message = "network error";
+	response.message = "network error";
 	return response;
 }
 
@@ -154,6 +154,46 @@ TEST_F(SpialertApiTests, GetStatusKeepsRateLimitStatusCode)
 
 	EXPECT_FALSE(response.is_success());
 	EXPECT_EQ(response.status_code, 429);
+	EXPECT_EQ(response.retry_after, std::chrono::seconds{5});
+}
+
+TEST_F(SpialertApiTests, ErrorResponseCarriesServerError)
+{
+	EXPECT_CALL(*_http_client, send_request(_, _, _, _))
+		.WillOnce(
+			Return(http_response(422, R"({"error":{"code":"validation_error","message":"Request validation failed",)"
+			                          R"("details":[{"field":"event_code","message":"too big"}]}})")));
+
+	const auto response = _api->post_events(make_event());
+
+	ASSERT_TRUE(response.error);
+	EXPECT_EQ(response.error->source, api::ApiError::SourceEnum::SERVER_SOURCE);
+	EXPECT_EQ(response.error->status_code, 422);
+	EXPECT_EQ(response.error->server_error.code, "validation_error");
+	EXPECT_EQ(response.error->server_error.message, "Request validation failed");
+	ASSERT_EQ(response.error->server_error.details.size(), 1u);
+	EXPECT_EQ(response.error->server_error.details[0].field, "event_code");
+}
+
+TEST_F(SpialertApiTests, HtmlErrorResponseKeepsStatusCodeAndText)
+{
+	auto html_response = http_response(502, "<html><body><h1>502 Bad Gateway</h1></body></html>");
+	html_response.message = "Bad Gateway";
+	EXPECT_CALL(*_http_client, send_request(_, _, _, _)).WillOnce(Return(html_response));
+
+	const auto response = _api->get_status();
+
+	EXPECT_EQ(response.status_code, 502);
+	ASSERT_TRUE(response.error);
+	EXPECT_EQ(response.error->message, "Bad Gateway");
+	EXPECT_EQ(response.error->describe(), "502 Bad Gateway (response is not a JSON error)");
+}
+
+TEST_F(SpialertApiTests, SuccessfulResponseHasNoError)
+{
+	EXPECT_CALL(*_http_client, send_request(_, _, _, _)).WillOnce(Return(http_response(201, EVENT_JSON)));
+
+	EXPECT_FALSE(_api->post_events(make_event()).error);
 }
 
 TEST_F(SpialertApiTests, GetStatusNetworkErrorIsNotSuccess)
@@ -165,6 +205,10 @@ TEST_F(SpialertApiTests, GetStatusNetworkErrorIsNotSuccess)
 	EXPECT_FALSE(response.is_success());
 	EXPECT_EQ(response.status_code, 0);
 	EXPECT_FALSE(response.dto.status);
+	ASSERT_TRUE(response.error);
+	EXPECT_EQ(response.error->source, api::ApiError::SourceEnum::NETWORK_SOURCE);
+	EXPECT_EQ(response.error->network_code, static_cast<uint32_t>(ERROR_WINHTTP_TIMEOUT));
+	EXPECT_EQ(response.error->message, "network error");
 }
 
 TEST_F(SpialertApiTests, PostEventsSendsEventAsJson)
@@ -304,8 +348,16 @@ TEST_F(SpialertApiTests, PostImageTooLargeForServerIsNotSuccess)
 
 TEST_F(SpialertApiTests, PostImageUnsupportedImageSendsNothing)
 {
-	EXPECT_EQ(_api->post_image(model::Image("a.gif", "GIF89a"), 42).status_code, 0);
-	EXPECT_EQ(_api->post_image(model::Image("a.png", "\xff\xd8\xff"), 42).status_code, 0);
+	for (const auto& image : {model::Image("a.gif", "GIF89a"), model::Image("a.png", "\xff\xd8\xff")})
+	{
+		const auto response = _api->post_image(image, 42);
+
+		EXPECT_EQ(response.status_code, 0);
+		ASSERT_TRUE(response.error);
+		EXPECT_EQ(response.error->source, api::ApiError::SourceEnum::LOCAL_SOURCE);
+		EXPECT_FALSE(response.error->message.empty()) << image.file_name();
+		EXPECT_EQ(response.error->message, image.validation_error().value_or("")) << image.file_name();
+	}
 }
 
 TEST_F(SpialertApiTests, PostImageSendsImageBytesWithoutCopy)

@@ -15,7 +15,7 @@ TEST(WinHttpClientTests, FirstRequestOpensTheConnection)
 	WinHttpClient client(LOCAL_HOST, TEST_USER_AGENT, CLOSED_PORT);
 	const auto response = client.send_request("/api/v1/status", "GET", {}, {});
 
-	EXPECT_EQ(response.error_code, ERROR_WINHTTP_CANNOT_CONNECT) << response.error_message;
+	EXPECT_EQ(response.error_code, ERROR_WINHTTP_CANNOT_CONNECT) << response.message;
 }
 
 TEST(WinHttpClientTests, FailedOpenReportsTheRealReason)
@@ -26,7 +26,7 @@ TEST(WinHttpClientTests, FailedOpenReportsTheRealReason)
 
 	EXPECT_FALSE(response.has_response());
 	EXPECT_NE(response.error_code, 0u);
-	EXPECT_NE(response.error_code, static_cast<unsigned long>(ERROR_WINHTTP_INCORRECT_HANDLE_STATE));
+	EXPECT_NE(response.error_code, static_cast<uint32_t>(ERROR_WINHTTP_INCORRECT_HANDLE_STATE));
 }
 
 TEST(WinHttpClientTests, ClosedPortReturnsCannotConnect)
@@ -38,7 +38,7 @@ TEST(WinHttpClientTests, ClosedPortReturnsCannotConnect)
 	EXPECT_FALSE(response.has_response());
 	EXPECT_EQ(response.error_code, ERROR_WINHTTP_CANNOT_CONNECT);
 	EXPECT_EQ(response.status_code, 0u);
-	EXPECT_NE(response.error_message.find("12029"), std::string::npos) << response.error_message;
+	EXPECT_NE(response.message.find("12029"), std::string::npos) << response.message;
 }
 
 TEST(WinHttpClientTests, SeveralRequestsReuseTheOpenedConnection)

@@ -11,6 +11,7 @@
 #include "net/WinHttpClient.h"
 #include "tests/helpers/ClientProcess.h"
 #include "tests/helpers/TempFile.h"
+#include "utils/FileUtils.h"
 #include "utils/StringUtils.h"
 
 #define PNG_IMAGE "\x89PNG\r\n\x1a\nimage-bytes"
@@ -106,7 +107,8 @@ TEST_F(ClientCliIntegrationTests, KeyFlagReplacesConfigFileValue)
 	const ClientOutput output = run_with_config({L"status", L"--key", L"" SECRET_KEY});
 
 	EXPECT_EQ(output.exit_code, 1u);
-	EXPECT_EQ(output.out, "Server is not online\n");
+	EXPECT_TRUE(output.out.empty()) << output.out;
+	EXPECT_EQ(output.err, "Server status is unknown: 401 invalid_api_key: API key is invalid\n");
 }
 
 TEST_F(ClientCliIntegrationTests, MissingDefaultConfigFails)
@@ -144,7 +146,9 @@ TEST_F(ClientCliIntegrationTests, StatusFailsWhenServerIsDown)
 	const ClientOutput output = run({L"status", L"--config", config.path().wstring()});
 
 	EXPECT_EQ(output.exit_code, 1u);
-	EXPECT_EQ(output.out, "Server is not online\n");
+	EXPECT_TRUE(output.out.empty()) << output.out;
+	EXPECT_TRUE(output.err.starts_with("Server status is unknown: network error: ")) << output.err;
+	EXPECT_TRUE(output.err.contains("(error 12029)")) << output.err;
 }
 
 TEST_F(ClientCliIntegrationTests, SendUploadsImage)
@@ -168,6 +172,32 @@ TEST_F(ClientCliIntegrationTests, SendMissingImageFails)
 	EXPECT_EQ(output.exit_code, 1u);
 	EXPECT_TRUE(output.err.contains("Failed to send Z:\\no\\such\\capture.png")) << output.err;
 	EXPECT_TRUE(list_events().items.empty());
+}
+
+TEST_F(ClientCliIntegrationTests, SendShowsServerErrorCodeAndMessage)
+{
+	add_fault(R"({"fault":"status","status":422,"code":"validation_error","message":"event_code is out of range",)"
+	          R"("method":"POST","path":"/api/v1/events"})");
+	const TempFile image("capture_0001.png", PNG_IMAGE);
+
+	const ClientOutput output = run_with_config({L"send", image.path().wstring()});
+
+	EXPECT_EQ(output.exit_code, 1u);
+	const std::string expected = std::format("Failed to send {}: Event was not created: 422 validation_error: "
+	                                         "event_code is out of range\n",
+	                                         utils::FileUtils::to_utf8(image.path()));
+	EXPECT_EQ(output.err, expected);
+	EXPECT_TRUE(list_events().items.empty());
+}
+
+TEST_F(ClientCliIntegrationTests, StatusShowsHtmlErrorPageAsStatusCode)
+{
+	add_fault(R"({"fault":"html","method":"GET","path":"/api/v1/status"})");
+
+	const ClientOutput output = run_with_config({L"status"});
+
+	EXPECT_EQ(output.exit_code, 1u);
+	EXPECT_EQ(output.err, "Server status is unknown: 502 Bad Gateway (response is not a JSON error)\n");
 }
 
 TEST_F(ClientCliIntegrationTests, UnknownCommandFailsWithHint)

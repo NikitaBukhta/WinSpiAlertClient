@@ -27,6 +27,8 @@
 #define IMAGE_DATA "\x89PNG\r\n\x1a\nimage"
 #define MB (1024 * 1024)
 #define LARGE_SIDE 4000u
+#define NETWORK_ERROR_CODE 12029u
+#define NETWORK_ERROR_TEXT "A connection with the server could not be established (error 12029)"
 
 using test_helpers::ImageCodec;
 using test_helpers::TempFile;
@@ -36,6 +38,7 @@ using testing::ByMove;
 using testing::Le;
 using testing::Property;
 using testing::Return;
+using ServerStateEnum = app::SpialertService::ServerStateEnum;
 
 namespace
 {
@@ -73,11 +76,22 @@ model::Image compressed_png(size_t size)
 	return model::Image("capture_0001.png", signature + std::string(size - signature.size(), 'x'));
 }
 
-api::ApiResponse<api::dto::StatusDto> status_response(int status_code, bool online)
+template <typename DtoType>
+void attach_error(api::ApiResponse<DtoType>& response, api::dto::ServerErrorDto server_error)
+{
+	if (response.status_code == 0)
+		response.error = api::ApiError::network(NETWORK_ERROR_CODE, NETWORK_ERROR_TEXT);
+	else if (!response.is_success())
+		response.error = api::ApiError::server(response.status_code, "", std::move(server_error));
+}
+
+api::ApiResponse<api::dto::StatusDto> status_response(int status_code, bool online,
+                                                      api::dto::ServerErrorDto server_error = {})
 {
 	api::ApiResponse<api::dto::StatusDto> response{};
 	response.status_code = status_code;
 	response.dto.status = online;
+	attach_error(response, std::move(server_error));
 	return response;
 }
 
@@ -90,6 +104,22 @@ api::ApiResponse<api::dto::EventObjectDto> event_response(int status_code, bool 
 		response.dto.event_id = EVENT_ID;
 		response.dto.image_uploaded = image_uploaded;
 	}
+	attach_error(response, {});
+	return response;
+}
+
+api::ApiResponse<api::dto::EventObjectDto> event_error(int status_code, api::dto::ServerErrorDto server_error)
+{
+	api::ApiResponse<api::dto::EventObjectDto> response{};
+	response.status_code = status_code;
+	attach_error(response, std::move(server_error));
+	return response;
+}
+
+api::ApiResponse<api::dto::EventObjectDto> local_error(const std::string& message)
+{
+	api::ApiResponse<api::dto::EventObjectDto> response{};
+	response.error = api::ApiError::local(message);
 	return response;
 }
 
@@ -129,28 +159,35 @@ TEST_F(SpialertServiceTests, OnlineServerIsOnline)
 {
 	EXPECT_CALL(*_spialert_api, get_status()).WillOnce(Return(status_response(200, true)));
 
-	EXPECT_TRUE(_service->is_online());
+	EXPECT_EQ(_service->is_online(), ServerStateEnum::ONLINE_STATE);
 }
 
 TEST_F(SpialertServiceTests, ServerInMaintenanceIsNotOnline)
 {
 	EXPECT_CALL(*_spialert_api, get_status()).WillOnce(Return(status_response(200, false)));
 
-	EXPECT_FALSE(_service->is_online());
+	EXPECT_EQ(_service->is_online(), ServerStateEnum::OFFLINE_STATE);
 }
 
-TEST_F(SpialertServiceTests, HttpErrorIsNotOnline)
+TEST_F(SpialertServiceTests, WrongKeyIsReportedInsteadOfNotOnline)
 {
-	EXPECT_CALL(*_spialert_api, get_status()).WillOnce(Return(status_response(401, false)));
+	EXPECT_CALL(*_spialert_api, get_status())
+		.WillOnce(Return(status_response(401, false, {"invalid_api_key", "API key is invalid", {}})));
 
-	EXPECT_FALSE(_service->is_online());
+	const auto state = _service->is_online();
+
+	ASSERT_FALSE(state);
+	EXPECT_EQ(state.error(), "Server status is unknown: 401 invalid_api_key: API key is invalid");
 }
 
-TEST_F(SpialertServiceTests, NetworkErrorIsNotOnline)
+TEST_F(SpialertServiceTests, NetworkErrorIsReportedInsteadOfNotOnline)
 {
 	EXPECT_CALL(*_spialert_api, get_status()).WillOnce(Return(status_response(0, false)));
 
-	EXPECT_FALSE(_service->is_online());
+	const auto state = _service->is_online();
+
+	ASSERT_FALSE(state);
+	EXPECT_EQ(state.error(), "Server status is unknown: network error: " NETWORK_ERROR_TEXT);
 }
 
 TEST_F(SpialertServiceTests, SendImgCreatesEventForTheFileThenUploadsIt)
@@ -193,14 +230,71 @@ TEST_F(SpialertServiceTests, SendImgGivesUpAfterThreeNetworkErrors)
 {
 	EXPECT_CALL(*_spialert_api, post_events(_)).Times(3).WillRepeatedly(Return(event_response(0)));
 
-	EXPECT_FALSE(_service->send_img(_image.path()));
+	const auto sent = _service->send_img(_image.path());
+
+	ASSERT_FALSE(sent);
+	EXPECT_EQ(sent.error(), "Event was not created: network error: " NETWORK_ERROR_TEXT);
 }
 
 TEST_F(SpialertServiceTests, SendImgDoesNotResendOnHttpError)
 {
-	EXPECT_CALL(*_spialert_api, post_events(_)).WillOnce(Return(event_response(409)));
+	EXPECT_CALL(*_spialert_api, post_events(_))
+		.WillOnce(Return(event_error(409, {"event_uid_conflict", "event_uid is already used", {}})));
 
-	EXPECT_FALSE(_service->send_img(_image.path()));
+	const auto sent = _service->send_img(_image.path());
+
+	ASSERT_FALSE(sent);
+	EXPECT_EQ(sent.error(), "Event was not created: 409 event_uid_conflict: event_uid is already used");
+}
+
+TEST_F(SpialertServiceTests, SendImgReportsWrongKey)
+{
+	EXPECT_CALL(*_spialert_api, post_events(_))
+		.WillOnce(Return(event_error(401, {"invalid_api_key", "API key is invalid", {}})));
+
+	const auto sent = _service->send_img(_image.path());
+
+	ASSERT_FALSE(sent);
+	EXPECT_EQ(sent.error(), "Event was not created: 401 invalid_api_key: API key is invalid");
+}
+
+TEST_F(SpialertServiceTests, SendImgReportsValidationErrorDetails)
+{
+	const api::dto::ServerErrorDto validation_error{
+		"validation_error",
+		"Request validation failed: event_code: Input should be less than or equal to 10",
+		{{"event_code", "Input should be less than or equal to 10"}}};
+	EXPECT_CALL(*_spialert_api, post_events(_)).WillOnce(Return(event_error(422, validation_error)));
+
+	const auto sent = _service->send_img(_image.path());
+
+	ASSERT_FALSE(sent);
+	EXPECT_EQ(sent.error(),
+	          "Event was not created: 422 validation_error: event_code: Input should be less than or equal to 10");
+}
+
+TEST_F(SpialertServiceTests, SendImgReportsServerErrorOfUploadWithoutResend)
+{
+	EXPECT_CALL(*_spialert_api, post_events(_)).WillOnce(Return(event_response(201)));
+	EXPECT_CALL(*_spialert_api, post_image(_, EVENT_ID))
+		.WillOnce(Return(event_error(500, {"internal_error", "Internal server error", {}})));
+
+	const auto sent = _service->send_img(_image.path());
+
+	ASSERT_FALSE(sent);
+	EXPECT_EQ(sent.error(), "Image for event 42 was not uploaded: 500 internal_error: Internal server error");
+}
+
+TEST_F(SpialertServiceTests, SendImgDoesNotResendLocalError)
+{
+	EXPECT_CALL(*_spialert_api, post_events(_)).WillOnce(Return(event_response(201)));
+	EXPECT_CALL(*_spialert_api, post_image(_, EVENT_ID))
+		.WillOnce(Return(local_error("Cannot create a multipart boundary")));
+
+	const auto sent = _service->send_img(_image.path());
+
+	ASSERT_FALSE(sent);
+	EXPECT_EQ(sent.error(), "Image for event 42 was not uploaded: Cannot create a multipart boundary");
 }
 
 TEST_F(SpialertServiceTests, SendImgReportsFailedUpload)
@@ -266,7 +360,10 @@ TEST_F(SpialertServiceTests, SendImgFileOverTheReadLimitCreatesNoEvent)
 
 TEST_F(SpialertServiceTests, SendImgMissingFileCreatesNoEvent)
 {
-	EXPECT_FALSE(_service->send_img("Z:\\no\\such\\capture.png"));
+	const auto sent = _service->send_img("Z:\\no\\such\\capture.png");
+
+	ASSERT_FALSE(sent);
+	EXPECT_TRUE(sent.error().starts_with("Cannot read Z:\\no\\such\\capture.png")) << sent.error();
 }
 
 TEST_F(SpialertServiceTests, SendImgUndecodableFileOverFiveMegabytesCreatesNoEvent)
@@ -355,7 +452,7 @@ TEST_F(SpialertServiceTests, EveryEventGetsItsOwnUidAndACodeInRange)
 	EXPECT_CALL(*_spialert_api, post_image(_, _)).Times(SEND_COUNT).WillRepeatedly(Return(event_response(200, true)));
 
 	for (int i = 0; i < SEND_COUNT; ++i)
-		_service->send_img(_image.path());
+		EXPECT_TRUE(_service->send_img(_image.path()));
 
 	std::set<std::string> uids;
 	for (const auto& event : sent)

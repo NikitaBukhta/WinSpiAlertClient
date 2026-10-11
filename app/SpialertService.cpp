@@ -1,7 +1,7 @@
 #include "SpialertService.h"
 
 #include <chrono>
-#include <print>
+#include <format>
 
 #include "api/dto/EventObjectDto.h"
 #include "api/dto/EventRequestDto.h"
@@ -29,57 +29,52 @@ SpialertService::SpialertService(std::unique_ptr<api::ISpialertApi> spialert_api
 {
 }
 
-bool SpialertService::is_online() const
+std::expected<SpialertService::ServerStateEnum, std::string> SpialertService::is_online() const
 {
 	const auto response = _spialert_api->get_status();
-	return response.is_success() && response.dto.status;
+	if (!response.is_success())
+		return std::unexpected(std::format("Server status is unknown: {}", describe(response)));
+
+	return response.dto.status ? ServerStateEnum::ONLINE_STATE : ServerStateEnum::OFFLINE_STATE;
 }
 
-bool SpialertService::send_img(const std::filesystem::path& image_path)
+std::expected<void, std::string> SpialertService::send_img(const std::filesystem::path& image_path)
 {
-	// the image is checked before the event is created: otherwise the server keeps an event that never gets its image
+	// NOTE: the image is checked first, or the server keeps an event without an image
 	const auto image = load_image(image_path);
 	if (!image)
-		return false;
+		return std::unexpected(image.error());
 
 	const auto event = create_event(image->file_name());
 	if (!event)
-		return false;
+		return std::unexpected(event.error());
 
 	return upload_image(*image, event->event_id);
 }
 
-std::optional<model::Image> SpialertService::load_image(const std::filesystem::path& image_path) const
+std::expected<model::Image, std::string> SpialertService::load_image(const std::filesystem::path& image_path) const
 {
 	auto image = model::Image::load(image_path, MAX_IMAGE_READ_SIZE);
 	if (!image)
-	{
-		std::println(stderr, "Cannot read {} or it is larger than {} bytes", utils::FileUtils::to_utf8(image_path),
-		             MAX_IMAGE_READ_SIZE);
-		return std::nullopt;
-	}
+		return std::unexpected(std::format("Cannot read {} or it is larger than {} bytes",
+		                                   utils::FileUtils::to_utf8(image_path), MAX_IMAGE_READ_SIZE));
 
-	if (const auto validation_error = image->validation_error())
-	{
-		std::println(stderr, "{}", *validation_error);
-		return std::nullopt;
-	}
+	const auto validation_error = image->validation_error();
+	if (validation_error)
+		return std::unexpected(*validation_error);
 
 	if (image->size() <= MAX_IMAGE_SIZE)
-		return image;
+		return std::move(*image);
 
 	return shrink_image(*image);
 }
 
-std::optional<model::Image> SpialertService::shrink_image(const model::Image& image) const
+std::expected<model::Image, std::string> SpialertService::shrink_image(const model::Image& image) const
 {
 	const auto compressor = _compressor_factory->create(image);
 	if (!compressor)
-	{
-		std::println(stderr, "{} is larger than {} bytes and cannot be decoded to shrink it", image.file_name(),
-		             MAX_IMAGE_SIZE);
-		return std::nullopt;
-	}
+		return std::unexpected(std::format("{} is larger than {} bytes and cannot be decoded to shrink it",
+		                                   image.file_name(), MAX_IMAGE_SIZE));
 
 	model::ImageSizePredictor predictor(image, MAX_IMAGE_SIZE, compressor->min_side(),
 	                                    compressor->decoded_pixel_ratio());
@@ -87,86 +82,79 @@ std::optional<model::Image> SpialertService::shrink_image(const model::Image& im
 	{
 		auto compressed = compressor->compress(step->scale, step->quality);
 		if (!compressed)
-		{
-			std::println(stderr, "Cannot re-encode {} to shrink it", image.file_name());
-			return std::nullopt;
-		}
+			return std::unexpected(std::format("Cannot re-encode {} to shrink it", image.file_name()));
 		if (compressed->size() <= MAX_IMAGE_SIZE)
-			return compressed;
+			return std::move(*compressed);
 
 		predictor.add_measurement(compressed->size());
 	}
 
-	std::println(stderr, "{} does not fit into {} bytes even at the smallest size", image.file_name(), MAX_IMAGE_SIZE);
-	return std::nullopt;
+	return std::unexpected(
+		std::format("{} does not fit into {} bytes even at the smallest size", image.file_name(), MAX_IMAGE_SIZE));
 }
 
-std::optional<api::dto::EventObjectDto> SpialertService::create_event(const std::string& file_name)
+std::expected<api::dto::EventObjectDto, std::string> SpialertService::create_event(const std::string& file_name)
 {
 	api::dto::EventRequestDto event;
 	event.event_uid = utils::UuidGenerator::generate();
 	if (event.event_uid.empty())
-	{
-		std::println(stderr, "Cannot generate event_uid");
-		return std::nullopt;
-	}
+		return std::unexpected("Cannot generate event_uid");
 
 	std::uniform_int_distribution<int> event_code(MIN_EVENT_CODE, MAX_EVENT_CODE);
 	event.event_code = event_code(_random);
 	event.file_name = file_name;
 	event.timestamp = std::chrono::system_clock::now();
 
-	// NOTE: a resend repeats the same event (same event_uid and timestamp): if the lost attempt reached the server,
-	// it answers 200 with the already created event instead of creating a duplicate
+	// NOTE: a resend keeps event_uid and timestamp, so the server returns the existing event instead of a duplicate
 	const auto created = send_with_retry([&] { return _spialert_api->post_events(event); }).response;
 	if (!created.is_success())
-	{
-		std::println(stderr, "Event was not created (HTTP {})", created.status_code);
-		return std::nullopt;
-	}
+		return std::unexpected(std::format("Event was not created: {}", describe(created)));
 
 	return created.dto;
 }
 
-bool SpialertService::upload_image(const model::Image& image, int event_id) const
+std::expected<void, std::string> SpialertService::upload_image(const model::Image& image, int event_id) const
 {
 	const auto [response, resent] = send_with_retry([&] { return _spialert_api->post_image(image, event_id); });
 
-	// NOTE: a lost attempt may have uploaded the image, then the resend gets 409 image_already_uploaded
+	// NOTE: 409 after a resend means the lost attempt has already uploaded the image
 	if (resent && response.status_code == HTTP_CONFLICT)
-		return true;
+		return {};
 
 	if (!response.is_success())
-	{
-		std::println(stderr, "Image for event {} was not uploaded (HTTP {})", event_id, response.status_code);
-		return false;
-	}
+		return std::unexpected(std::format("Image for event {} was not uploaded: {}", event_id, describe(response)));
 
 	if (!response.dto.image_uploaded)
-	{
-		std::println(stderr, "Server accepted the image for event {}, but did not mark it as uploaded", event_id);
-		return false;
-	}
+		return std::unexpected(
+			std::format("Server accepted the image for event {}, but did not mark it as uploaded", event_id));
 
-	return true;
+	return {};
 }
 
 SpialertService::SendResult SpialertService::send_with_retry(
 	const std::function<api::ApiResponse<api::dto::EventObjectDto>()>& request)
 {
-	// TODO: backoff between attempts, wait Retry-After on 429, no resend on permanent errors (TLS 12175, DNS 12007):
-	// needs the error kind from SpialertApi, not only status_code == 0
+	// TODO: backoff between attempts, wait Retry-After on 429, no resend on permanent errors (TLS 12175, DNS 12007)
 	// TODO: the delays and the Retry-After cap from secret/config.json
 	SendResult result;
 	for (int attempt = 0; attempt < MAX_SEND_ATTEMPTS; ++attempt)
 	{
 		result.resent = attempt > 0;
 		result.response = request();
-		const bool network_error = result.response.status_code == 0;
+		const auto& error = result.response.error;
+		const bool network_error = error && error->source == api::ApiError::SourceEnum::NETWORK_SOURCE;
 		if (!network_error)
 			break;
 	}
 	return result;
+}
+
+template <typename DtoType>
+std::string SpialertService::describe(const api::ApiResponse<DtoType>& response)
+{
+	if (!response.error)
+		return std::format("HTTP {}", response.status_code);
+	return response.error->describe();
 }
 
 } // namespace app

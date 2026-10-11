@@ -2,6 +2,7 @@
 #define WINSPIALERTCLIENT_IHTTPCLIENT_H
 
 #include <chrono>
+#include <cstdint>
 #include <optional>
 #include <span>
 #include <string>
@@ -12,11 +13,11 @@ namespace net
 
 struct HttpResponse
 {
-	unsigned long status_code{};
+	uint16_t status_code{};
 	std::string body;
 	std::optional<std::chrono::seconds> retry_after;
-	unsigned long error_code{};
-	std::string error_message;
+	uint32_t error_code{};
+	std::string message; // NOTE: the reason phrase with a response, the WinHTTP error text without one
 
 	[[nodiscard]] bool has_response() const noexcept
 	{

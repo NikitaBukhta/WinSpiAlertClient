@@ -92,7 +92,7 @@ class RealImageIntegrationTests : public SpialertServiceIntegrationTests, public
 
 TEST_F(SpialertServiceIntegrationTests, MockServerIsOnline)
 {
-	EXPECT_TRUE(_service->is_online());
+	EXPECT_EQ(_service->is_online(), app::SpialertService::ServerStateEnum::ONLINE_STATE);
 }
 
 TEST_F(SpialertServiceIntegrationTests, SendImgCreatesEventWithUploadedImage)
@@ -167,6 +167,29 @@ TEST_F(SpialertServiceIntegrationTests, SendImgRejectedFileNameCreatesNoUpload)
 	EXPECT_EQ(list_events().total, 0) << "the name breaks the server rules, so the client sends nothing";
 }
 
+TEST_F(SpialertServiceIntegrationTests, SendImgReportsServerErrorCodeAndMessage)
+{
+	add_fault(R"({"fault":"status","status":500,"code":"storage_failure","message":"Disk is full",)"
+	          R"("method":"POST","path":"/api/v1/events"})");
+	const test_helpers::TempFile image("capture_0001.png", PNG_IMAGE);
+
+	const auto sent = _service->send_img(image.path());
+
+	ASSERT_FALSE(sent);
+	EXPECT_EQ(sent.error(), "Event was not created: 500 storage_failure: Disk is full");
+}
+
+TEST_F(SpialertServiceIntegrationTests, SendImgReportsHtmlErrorPage)
+{
+	add_fault(R"({"fault":"html","method":"POST","path":"/api/v1/events"})");
+	const test_helpers::TempFile image("capture_0001.png", PNG_IMAGE);
+
+	const auto sent = _service->send_img(image.path());
+
+	ASSERT_FALSE(sent);
+	EXPECT_EQ(sent.error(), "Event was not created: 502 Bad Gateway (response is not a JSON error)");
+}
+
 TEST_P(RealImageIntegrationTests, SendImgShrinksOrRejectsRealImage)
 {
 	const auto& [name, sent] = GetParam();
@@ -174,7 +197,7 @@ TEST_P(RealImageIntegrationTests, SendImgShrinksOrRejectsRealImage)
 	ASSERT_TRUE(std::filesystem::exists(path))
 	    << path << " is missing: py scripts\\project.py integration downloads it";
 
-	EXPECT_EQ(_service->send_img(path), sent);
+	EXPECT_EQ(_service->send_img(path).has_value(), sent);
 
 	const auto events = list_events();
 	if (!sent)

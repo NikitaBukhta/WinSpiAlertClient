@@ -30,6 +30,8 @@ private:
 	ApiResponse<DtoType> execute_request(const std::string& method, const std::string& path,
 	                                     std::span<const std::string_view> body_parts, const std::string& content_type,
 	                                     DtoType (*from_json)(char*));
+	template <typename DtoType>
+	static ApiResponse<DtoType> local_error(std::string message);
 
 private:
 	std::unique_ptr<net::IHttpClient> _http_client;

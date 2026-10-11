@@ -1,11 +1,11 @@
 #include "SpialertApi.h"
 
 #include <format>
-#include <print>
 
 #include "dto/EventObjectDto.h"
 #include "dto/EventRequestDto.h"
 #include "dto/EventsListDto.h"
+#include "dto/ServerErrorDto.h"
 #include "dto/StatusDto.h"
 #include "model/Image.h"
 #include "net/MultipartBuilder.h"
@@ -20,6 +20,7 @@
 #define EVENTS_QUERY_FORMAT "?limit={}&offset={}"
 #define IMAGE_UPLOADED_QUERY_FORMAT "&image_uploaded={}"
 #define IMAGE_FIELD_NAME "file"
+#define NO_BOUNDARY_ERROR "Cannot create a multipart boundary"
 
 namespace api
 {
@@ -55,14 +56,11 @@ ApiResponse<dto::EventObjectDto> SpialertApi::post_image(const model::Image& ima
 {
 	const auto content_type = image.content_type();
 	if (!content_type)
-		return {};
+		return local_error<dto::EventObjectDto>(image.validation_error().value_or(""));
 
 	const std::string boundary = utils::UuidGenerator::generate();
 	if (boundary.empty())
-	{
-		std::println(stderr, "Cannot create a multipart boundary");
-		return {};
-	}
+		return local_error<dto::EventObjectDto>(NO_BOUNDARY_ERROR);
 
 	const std::string header =
 		net::MultipartBuilder::file_part_header(boundary, IMAGE_FIELD_NAME, image.file_name(), *content_type);
@@ -78,24 +76,34 @@ ApiResponse<DtoType> SpialertApi::execute_request(const std::string& method, con
                                                   std::span<const std::string_view> body_parts,
                                                   const std::string& content_type, DtoType (*from_json)(char*))
 {
-	// TODO: return the error kind (WinHTTP code, parse error) + message to the caller instead of printing here:
-	// SpialertService decides on resends (send_with_resend) and needs it to tell a timeout from a TLS failure
 	const std::string headers =
 		content_type.empty() ? _auth_headers : _auth_headers + CONTENT_TYPE_HEADER + content_type;
 	net::HttpResponse response = _http_client->send_request(_base_path + path, method, body_parts, headers);
 
+	ApiResponse<DtoType> result{};
 	if (!response.has_response())
 	{
-		std::println(stderr, "{} {} failed: {}", method, path, response.error_message);
-		return {};
+		result.error = ApiError::network(response.error_code, std::move(response.message));
+		return result;
 	}
 
-	ApiResponse<DtoType> result{};
-	result.status_code = static_cast<int>(response.status_code);
+	result.status_code = response.status_code;
+	result.retry_after = response.retry_after;
 
 	if (result.is_success())
 		result.dto = from_json(response.body.data());
+	else
+		result.error = ApiError::server(result.status_code, std::move(response.message),
+		                                dto::ServerErrorMapper::fromJson(response.body.data()));
 
+	return result;
+}
+
+template <typename DtoType>
+ApiResponse<DtoType> SpialertApi::local_error(std::string message)
+{
+	ApiResponse<DtoType> result{};
+	result.error = ApiError::local(std::move(message));
 	return result;
 }
 } // namespace api

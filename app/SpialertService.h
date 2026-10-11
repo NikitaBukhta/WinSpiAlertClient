@@ -1,10 +1,10 @@
 #ifndef WINSPIALERTCLIENT_SPIALERTSERVICE_H
 #define WINSPIALERTCLIENT_SPIALERTSERVICE_H
 
+#include <expected>
 #include <filesystem>
 #include <functional>
 #include <memory>
-#include <optional>
 #include <random>
 #include <string>
 
@@ -18,11 +18,17 @@ namespace app
 class SpialertService
 {
 public:
+	enum class ServerStateEnum : uint8_t
+	{
+		ONLINE_STATE,
+		OFFLINE_STATE
+	};
+
 	SpialertService(std::unique_ptr<api::ISpialertApi> spialert_api,
 	                std::unique_ptr<model::IImageCompressorFactory> compressor_factory);
 
-	[[nodiscard]] bool is_online() const;
-	bool send_img(const std::filesystem::path& image_path);
+	[[nodiscard]] std::expected<ServerStateEnum, std::string> is_online() const;
+	std::expected<void, std::string> send_img(const std::filesystem::path& image_path);
 
 private:
 	struct SendResult
@@ -31,10 +37,14 @@ private:
 		bool resent{};
 	};
 
-	[[nodiscard]] std::optional<model::Image> load_image(const std::filesystem::path& image_path) const;
-	[[nodiscard]] std::optional<model::Image> shrink_image(const model::Image& image) const;
-	std::optional<api::dto::EventObjectDto> create_event(const std::string& file_name);
-	[[nodiscard]] bool upload_image(const model::Image& image, int event_id) const;
+	[[nodiscard]] std::expected<model::Image, std::string> load_image(const std::filesystem::path& image_path) const;
+	[[nodiscard]] std::expected<model::Image, std::string> shrink_image(const model::Image& image) const;
+	std::expected<api::dto::EventObjectDto, std::string> create_event(const std::string& file_name);
+	[[nodiscard]] std::expected<void, std::string> upload_image(const model::Image& image, int event_id) const;
+
+	template <typename DtoType>
+	static std::string describe(const api::ApiResponse<DtoType>& response);
+
 	static SendResult send_with_retry(const std::function<api::ApiResponse<api::dto::EventObjectDto>()>& request);
 
 private:

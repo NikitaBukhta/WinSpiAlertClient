@@ -40,6 +40,8 @@ add_library(
 	model/WicImageCompressorFactory.h
 	model/ImageSizePredictor.cpp
 	model/ImageSizePredictor.h
+	api/ApiError.cpp
+	api/ApiError.h
 	api/ApiResponse.h
 	api/ISpialertApi.h
 	api/SpialertApi.cpp
@@ -61,6 +63,7 @@ add_library(
 	api/dto/EventObjectDto.h
 	api/dto/EventRequestDto.h
 	api/dto/EventsListDto.h
+	api/dto/ServerErrorDto.h
 	app/SpialertService.cpp
 	app/SpialertService.h
 	cli/ClientConfig.h
@@ -103,6 +106,7 @@ if(WINSPIALERT_BUILD_TESTS)
 
 	add_executable(
 		client_tests
+		tests/api/ApiErrorTests.cpp
 		tests/api/ApiResponseTests.cpp
 		tests/api/SpialertApiTests.cpp
 		tests/app/SpialertServiceTests.cpp
@@ -111,6 +115,7 @@ if(WINSPIALERT_BUILD_TESTS)
 		tests/api/dto/EventObjectDtoTests.cpp
 		tests/api/dto/EventRequestDtoTests.cpp
 		tests/api/dto/EventsListDtoTests.cpp
+		tests/api/dto/ServerErrorDtoTests.cpp
 		tests/api/dto/StatusDtoTests.cpp
 		tests/net/WinHttpClientTests.cpp
 		tests/model/ImageTests.cpp

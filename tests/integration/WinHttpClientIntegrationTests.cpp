@@ -50,7 +50,7 @@ TEST_F(WinHttpClientIntegrationTests, GetReturnsStatusCodeAndBody)
 {
 	const auto response = _client.send_request(STATUS_PATH, "GET", {}, API_KEY_HEADER);
 
-	EXPECT_TRUE(response.has_response()) << response.error_message;
+	EXPECT_TRUE(response.has_response()) << response.message;
 	EXPECT_EQ(response.status_code, 200u);
 	EXPECT_NE(response.body.find(R"("status": "online")"), std::string::npos) << response.body;
 	EXPECT_FALSE(response.retry_after.has_value());
@@ -61,7 +61,7 @@ TEST_F(WinHttpClientIntegrationTests, SeveralRequestsReuseTheClient)
 	for (int i = 0; i < 3; ++i)
 	{
 		const auto response = _client.send_request(STATUS_PATH, "GET", {}, API_KEY_HEADER);
-		EXPECT_EQ(response.status_code, 200u) << "request " << i << ": " << response.error_message;
+		EXPECT_EQ(response.status_code, 200u) << "request " << i << ": " << response.message;
 	}
 }
 
@@ -71,6 +71,7 @@ TEST_F(WinHttpClientIntegrationTests, HttpErrorIsAResponseNotANetworkError)
 
 	EXPECT_TRUE(response.has_response());
 	EXPECT_EQ(response.status_code, 401u);
+	EXPECT_EQ(response.message, "Unauthorized");
 	EXPECT_NE(response.body.find("invalid_api_key"), std::string::npos) << response.body;
 }
 
@@ -151,6 +152,7 @@ TEST_F(WinHttpClientIntegrationTests, NonJsonBodyIsReturnedAsIs)
 	const auto response = _client.send_request(STATUS_PATH, "GET", {}, API_KEY_HEADER);
 
 	EXPECT_EQ(response.status_code, 502u);
+	EXPECT_EQ(response.message, "Bad Gateway");
 	EXPECT_EQ(response.body.rfind("<html>", 0), 0u) << response.body;
 }
 
@@ -163,7 +165,7 @@ TEST_F(WinHttpClientIntegrationTests, ConnectionResetIsANetworkError)
 	EXPECT_FALSE(response.has_response());
 	EXPECT_EQ(response.status_code, 0u);
 	EXPECT_NE(response.error_code, 0u);
-	EXPECT_FALSE(response.error_message.empty());
+	EXPECT_FALSE(response.message.empty());
 }
 
 TEST_F(WinHttpClientIntegrationTests, BodyCutOffMidwayIsANetworkError)
@@ -201,5 +203,5 @@ TEST(WinHttpClientTlsTests, HostNotInCertificateIsRejected)
 	const auto response = client.send_request(STATUS_PATH, "GET", {}, "X-API-Key: test-key");
 
 	EXPECT_FALSE(response.has_response());
-	EXPECT_EQ(response.error_code, static_cast<unsigned long>(ERROR_WINHTTP_SECURE_FAILURE));
+	EXPECT_EQ(response.error_code, static_cast<uint32_t>(ERROR_WINHTTP_SECURE_FAILURE));
 }
