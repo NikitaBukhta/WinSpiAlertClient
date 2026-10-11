@@ -4,7 +4,7 @@
 #include <string>
 #include <string_view>
 
-#include "SaxHandler.h"
+#include "utils/SaxHandler.h"
 #include "utils/TimeParser.h"
 
 namespace api::dto
@@ -25,7 +25,7 @@ struct EventObjectDto
 	utils::time_point image_uploaded_at;
 };
 
-struct EventObjectHandler : BaseSaxHandler<EventObjectHandler>
+struct EventObjectHandler : utils::BaseSaxHandler<EventObjectHandler>
 {
 	EventObjectDto& dto;
 

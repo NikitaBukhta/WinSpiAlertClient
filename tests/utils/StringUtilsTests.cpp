@@ -33,3 +33,14 @@ TEST(StringUtilsTests, KeepsHeaderSeparators)
 {
 	EXPECT_EQ(StringUtils::to_wide("X-API-Key: key\r\nAccept: */*"), L"X-API-Key: key\r\nAccept: */*");
 }
+
+TEST(StringUtilsTests, ConvertsWideStringToUtf8)
+{
+	EXPECT_EQ(StringUtils::to_utf8(L"https://localhost:8443/api/v1"), "https://localhost:8443/api/v1");
+	EXPECT_EQ(StringUtils::to_utf8(L"фото.png"), "\xd1\x84\xd0\xbe\xd1\x82\xd0\xbe.png");
+}
+
+TEST(StringUtilsTests, ConvertsEmptyWideString)
+{
+	EXPECT_EQ(StringUtils::to_utf8(L""), "");
+}

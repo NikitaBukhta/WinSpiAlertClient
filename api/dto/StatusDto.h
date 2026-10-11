@@ -4,7 +4,7 @@
 #include <string>
 #include <string_view>
 
-#include "SaxHandler.h"
+#include "utils/SaxHandler.h"
 #include "utils/TimeParser.h"
 
 #define SERVER_STATUS_ONLINE "online"
@@ -20,7 +20,7 @@ struct StatusDto
 	std::string candidate;
 };
 
-struct StatusDtoHandler : BaseSaxHandler<StatusDtoHandler>
+struct StatusDtoHandler : utils::BaseSaxHandler<StatusDtoHandler>
 {
 	StatusDto& dto;
 

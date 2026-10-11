@@ -18,7 +18,7 @@ struct EventsListDto
 };
 
 // NOTE: top-level fields are handled here, every object inside "items" is delegated to EventObjectHandler
-struct EventsListHandler : BaseSaxHandler<EventsListHandler>
+struct EventsListHandler : utils::BaseSaxHandler<EventsListHandler>
 {
 	EventsListDto& dto;
 

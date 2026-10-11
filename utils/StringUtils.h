@@ -11,6 +11,7 @@ class StringUtils
 {
 public:
 	static std::wstring to_wide(std::string_view ascii);
+	static std::string to_utf8(std::wstring_view wide);
 };
 } // namespace utils
 

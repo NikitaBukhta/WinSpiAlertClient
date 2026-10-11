@@ -36,16 +36,31 @@ copy secret\config.json.example secret\config.json
 
 ## Run
 
+Run from the repository root: the default config path `secret/config.json` is relative to the current directory.
+
 ```bat
-build\Release\client.exe
+build\Release\client.exe status               :: is the server online
+build\Release\client.exe send capture.png     :: create an event and upload the image (PNG or JPEG)
+build\Release\client.exe list [--pending]     :: list events, --pending: only events without an image
+build\Release\client.exe help
 ```
 
-To run against the local mock server instead of the real API (`base_url`: `https://localhost:8443/api/v1`,
-`api_key`: `test-key`):
+Options, accepted anywhere on the line:
+
+- `--config <path>`: another config file instead of `secret/config.json`.
+- `--url <url>`, `--key <key>`: used instead of `base_url` and `api_key` from the file. With both given, the
+  default config file is not needed. Prefer the file for the key: a `--key` stays in the shell history and the process list.
+- `--`: ends the options, for an image whose name starts with `-`: `send -- -capture.png`.
+
+Only `https` URLs are accepted. The exit code is 0 on success and 1 on error, a call without a command shows the help
+and returns 1.
+
+To run against the local mock server instead of the real API:
 
 ```bat
 py scripts\mock_server.py install-cert   :: once, trusts the self-signed localhost certificate
 py scripts\mock_server.py
+build\Release\client.exe --url https://localhost:8443/api/v1 --key test-key status
 ```
 
 ## Tests

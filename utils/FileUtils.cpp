@@ -4,6 +4,8 @@
 #include <fstream>
 #include <system_error>
 
+#include "StringUtils.h"
+
 namespace utils
 {
 
@@ -30,8 +32,7 @@ std::string FileUtils::file_name(const std::filesystem::path& path)
 
 std::string FileUtils::to_utf8(const std::filesystem::path& path)
 {
-	const std::u8string utf8 = path.u8string();
-	return {utf8.begin(), utf8.end()};
+	return StringUtils::to_utf8(path.native());
 }
 
 } // namespace utils

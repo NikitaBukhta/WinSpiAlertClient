@@ -1,23 +1,12 @@
 #ifndef WINSPIALERTCLIENT_TESTS_MOCKSERVERPROCESS_H
 #define WINSPIALERTCLIENT_TESTS_MOCKSERVERPROCESS_H
 
-#include <memory>
 #include <string>
 
-#include <windows.h>
+#include "HandlePtr.h"
 
 namespace test_helpers
 {
-
-struct HandleDeleter
-{
-	void operator()(HANDLE handle) const noexcept
-	{
-		CloseHandle(handle);
-	}
-};
-
-using HandlePtr = std::unique_ptr<void, HandleDeleter>;
 
 // Runs scripts/mock_server.py in a job object: the mock dies together with the test process, even on a crash
 class MockServerProcess
