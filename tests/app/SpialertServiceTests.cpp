@@ -33,6 +33,8 @@
 #define TLS_ERROR_CODE 12175u
 #define TLS_ERROR_TEXT "A security error occurred (error 12175)"
 #define RATE_LIMIT_ERROR_TEXT "Event was not created: 429 rate_limited: Rate limit exceeded"
+#define PAGE_SIZE 100
+#define MAX_PAGES 20
 
 using test_helpers::ImageCodec;
 using test_helpers::TempFile;
@@ -153,6 +155,42 @@ api::ApiResponse<api::dto::EventObjectDto> local_error(const std::string& messag
 	return response;
 }
 
+// count events with ids going down from first_id: the server returns the newest first
+api::ApiResponse<api::dto::EventsListDto> events_page(const int total, const int first_id, const int count)
+{
+	api::ApiResponse<api::dto::EventsListDto> response{};
+	response.status_code = 200;
+	response.dto.total = total;
+	for (int event_id = first_id; event_id > first_id - count; --event_id)
+		response.dto.items.push_back({.event_id = event_id});
+	return response;
+}
+
+api::ApiResponse<api::dto::EventsListDto> events_error(const int status_code, api::dto::ServerErrorDto server_error)
+{
+	api::ApiResponse<api::dto::EventsListDto> response{};
+	response.status_code = status_code;
+	attach_error(response, std::move(server_error));
+	return response;
+}
+
+std::vector<int> event_ids(const std::vector<api::dto::EventObjectDto>& events)
+{
+	std::vector<int> ids;
+	ids.reserve(events.size());
+	for (const auto& event : events)
+		ids.emplace_back(event.event_id);
+	return ids;
+}
+
+std::vector<int> descending_ids(int first_id, int count)
+{
+	std::vector<int> ids;
+	for (int event_id = first_id; event_id > first_id - count; --event_id)
+		ids.push_back(event_id);
+	return ids;
+}
+
 class SpialertServiceTests : public testing::Test
 {
 protected:
@@ -223,12 +261,12 @@ TEST_F(SpialertServiceTests, ServerInMaintenanceIsNotOnline)
 TEST_F(SpialertServiceTests, WrongKeyIsReportedInsteadOfNotOnline)
 {
 	EXPECT_CALL(*_spialert_api, get_status())
-		.WillOnce(Return(status_response(401, false, {"invalid_api_key", "API key is invalid", {}})));
+		.WillOnce(Return(status_response(401, false, {"invalid_api_key", "API key is not valid.", {}})));
 
 	const auto state = _service->is_online();
 
 	ASSERT_FALSE(state);
-	EXPECT_EQ(state.error(), "Server status is unknown: 401 invalid_api_key: API key is invalid");
+	EXPECT_EQ(state.error(), "Server status is unknown: 401 invalid_api_key: API key is not valid.");
 }
 
 TEST_F(SpialertServiceTests, NetworkErrorIsReportedInsteadOfNotOnline)
@@ -430,12 +468,12 @@ TEST_F(SpialertServiceTests, SendImgDoesNotResendOnHttpError)
 TEST_F(SpialertServiceTests, SendImgReportsWrongKey)
 {
 	EXPECT_CALL(*_spialert_api, post_events(_))
-		.WillOnce(Return(event_error(401, {"invalid_api_key", "API key is invalid", {}})));
+		.WillOnce(Return(event_error(401, {"invalid_api_key", "API key is not valid.", {}})));
 
 	const auto sent = _service->send_img(_image.path());
 
 	ASSERT_FALSE(sent);
-	EXPECT_EQ(sent.error(), "Event was not created: 401 invalid_api_key: API key is invalid");
+	EXPECT_EQ(sent.error(), "Event was not created: 401 invalid_api_key: API key is not valid.");
 }
 
 TEST_F(SpialertServiceTests, SendImgReportsValidationErrorDetails)
@@ -646,4 +684,96 @@ TEST_F(SpialertServiceTests, EveryEventGetsItsOwnUidAndACodeInRange)
 		EXPECT_LE(event.event_code, 10);
 	}
 	EXPECT_EQ(uids.size(), static_cast<size_t>(SEND_COUNT));
+}
+
+TEST_F(SpialertServiceTests, ListEventsReadsEveryPage)
+{
+	const std::optional<bool> no_filter;
+	testing::InSequence in_order;
+	EXPECT_CALL(*_spialert_api, get_events(PAGE_SIZE, 0, no_filter)).WillOnce(Return(events_page(250, 250, 100)));
+	EXPECT_CALL(*_spialert_api, get_events(PAGE_SIZE, 100, no_filter)).WillOnce(Return(events_page(250, 150, 100)));
+	EXPECT_CALL(*_spialert_api, get_events(PAGE_SIZE, 200, no_filter)).WillOnce(Return(events_page(250, 50, 50)));
+
+	const auto listing = _service->list_events(false);
+
+	ASSERT_TRUE(listing) << listing.error();
+	EXPECT_EQ(event_ids(listing->items), descending_ids(250, 250));
+	EXPECT_EQ(listing->total, 250);
+	EXPECT_FALSE(listing->truncated);
+}
+
+TEST_F(SpialertServiceTests, ListEventsPendingAsksOnlyEventsWithoutImage)
+{
+	EXPECT_CALL(*_spialert_api, get_events(PAGE_SIZE, 0, std::optional(false))).WillOnce(Return(events_page(1, 7, 1)));
+
+	const auto listing = _service->list_events(true);
+
+	ASSERT_TRUE(listing) << listing.error();
+	EXPECT_EQ(event_ids(listing->items), std::vector{7});
+}
+
+TEST_F(SpialertServiceTests, ListEventsOnEmptyServerMakesOneRequest)
+{
+	EXPECT_CALL(*_spialert_api, get_events(PAGE_SIZE, 0, _)).WillOnce(Return(events_page(0, 0, 0)));
+
+	const auto listing = _service->list_events(false);
+
+	ASSERT_TRUE(listing) << listing.error();
+	EXPECT_TRUE(listing->items.empty());
+	EXPECT_FALSE(listing->truncated);
+}
+
+TEST_F(SpialertServiceTests, ListEventsFailsWhenSecondPageFails)
+{
+	testing::InSequence in_order;
+	EXPECT_CALL(*_spialert_api, get_events(PAGE_SIZE, 0, _)).WillOnce(Return(events_page(250, 250, 100)));
+	EXPECT_CALL(*_spialert_api, get_events(PAGE_SIZE, 100, _))
+		.WillOnce(Return(events_error(500, {"internal_error", "Database is unavailable", {}})));
+
+	const auto listing = _service->list_events(false);
+
+	ASSERT_FALSE(listing);
+	EXPECT_EQ(listing.error(),
+	          "Events were not listed: page at offset 100: 500 internal_error: Database is unavailable");
+}
+
+TEST_F(SpialertServiceTests, ListEventsStopsOnEmptyPageEvenIfTotalSaysMore)
+{
+	testing::InSequence in_order;
+	EXPECT_CALL(*_spialert_api, get_events(PAGE_SIZE, 0, _)).WillOnce(Return(events_page(300, 300, 100)));
+	EXPECT_CALL(*_spialert_api, get_events(PAGE_SIZE, 100, _)).WillOnce(Return(events_page(300, 0, 0)));
+
+	const auto listing = _service->list_events(false);
+
+	ASSERT_TRUE(listing) << listing.error();
+	EXPECT_EQ(listing->items.size(), 100u);
+	EXPECT_FALSE(listing->truncated);
+}
+
+TEST_F(SpialertServiceTests, ListEventsStopsAtPageLimit)
+{
+	EXPECT_CALL(*_spialert_api, get_events(PAGE_SIZE, _, _))
+		.Times(MAX_PAGES)
+		.WillRepeatedly(
+			[](int limit, int offset, std::optional<bool>) { return events_page(5000, 5000 - offset, limit); });
+
+	const auto listing = _service->list_events(false);
+
+	ASSERT_TRUE(listing) << listing.error();
+	EXPECT_EQ(listing->items.size(), static_cast<size_t>(MAX_PAGES * PAGE_SIZE));
+	EXPECT_EQ(listing->total, 5000);
+	EXPECT_TRUE(listing->truncated);
+}
+
+TEST_F(SpialertServiceTests, ListEventsSkipsEventShiftedToNextPage)
+{
+	// event 151 is created between the requests and shifts event 51 down to the second page
+	testing::InSequence in_order;
+	EXPECT_CALL(*_spialert_api, get_events(PAGE_SIZE, 0, _)).WillOnce(Return(events_page(150, 150, 100)));
+	EXPECT_CALL(*_spialert_api, get_events(PAGE_SIZE, 100, _)).WillOnce(Return(events_page(151, 51, 51)));
+
+	const auto listing = _service->list_events(false);
+
+	ASSERT_TRUE(listing) << listing.error();
+	EXPECT_EQ(event_ids(listing->items), descending_ids(150, 150));
 }

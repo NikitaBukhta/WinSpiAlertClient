@@ -1,6 +1,7 @@
 #ifndef WINSPIALERTCLIENT_STRINGUTILS_H
 #define WINSPIALERTCLIENT_STRINGUTILS_H
 
+#include <cstdint>
 #include <string>
 #include <string_view>
 
@@ -12,6 +13,7 @@ class StringUtils
 public:
 	static std::wstring to_wide(std::string_view ascii);
 	static std::string to_utf8(std::wstring_view wide);
+	static std::string format_byte_size(uint64_t size);
 };
 } // namespace utils
 

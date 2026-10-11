@@ -10,11 +10,11 @@ using test_helpers::DtoParser;
 
 TEST(ServerErrorDtoTests, ParsesErrorWithoutDetails)
 {
-	const auto dto =
-		DtoParser::parse<ServerErrorMapper>(R"({"error":{"code":"invalid_api_key","message":"API key is invalid"}})");
+	const auto dto = DtoParser::parse<ServerErrorMapper>(
+		R"({"error":{"code":"invalid_api_key","message":"API key is not valid."}})");
 
 	EXPECT_EQ(dto.code, "invalid_api_key");
-	EXPECT_EQ(dto.message, "API key is invalid");
+	EXPECT_EQ(dto.message, "API key is not valid.");
 	EXPECT_TRUE(dto.details.empty());
 }
 

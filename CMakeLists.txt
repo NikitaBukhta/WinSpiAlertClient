@@ -78,6 +78,8 @@ add_library(
 	cli/CommandRunner.h
 	cli/ConsoleRetryWaiter.cpp
 	cli/ConsoleRetryWaiter.h
+	cli/EventsTableFormatter.cpp
+	cli/EventsTableFormatter.h
 )
 
 target_include_directories(client_core PUBLIC ${rapidjson_SOURCE_DIR}/include ${CMAKE_CURRENT_SOURCE_DIR})
@@ -115,6 +117,7 @@ if(WINSPIALERT_BUILD_TESTS)
 		tests/app/SpialertServiceTests.cpp
 		tests/cli/ClientConfigLoaderTests.cpp
 		tests/cli/CommandLineParserTests.cpp
+		tests/cli/EventsTableFormatterTests.cpp
 		tests/api/dto/EventObjectDtoTests.cpp
 		tests/api/dto/EventRequestDtoTests.cpp
 		tests/api/dto/EventsListDtoTests.cpp

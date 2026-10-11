@@ -44,7 +44,7 @@ def check_api_key(request, expected_key):
     if not api_key:
         raise ApiError(HTTPStatus.UNAUTHORIZED, "missing_api_key", "X-API-Key header is required")
     if api_key != expected_key:
-        raise ApiError(HTTPStatus.UNAUTHORIZED, "invalid_api_key", "API key is invalid")
+        raise ApiError(HTTPStatus.UNAUTHORIZED, "invalid_api_key", "API key is not valid.")
 
 
 def get_status(state, request):

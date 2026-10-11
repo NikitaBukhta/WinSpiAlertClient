@@ -6,6 +6,7 @@
 #include "ClientConfigLoader.h"
 #include "CommandLineParser.h"
 #include "ConsoleRetryWaiter.h"
+#include "EventsTableFormatter.h"
 #include "api/SpialertApi.h"
 #include "model/WicImageCompressorFactory.h"
 #include "net/WinHttpClient.h"
@@ -127,9 +128,15 @@ int CommandRunner::run_send(const std::filesystem::path& image_path) const
 
 int CommandRunner::run_list(bool pending) const
 {
-	// TODO: request events from the server
-	std::println(stderr, "list is not implemented yet");
-	return EXIT_FAILURE;
+	const auto listing = _service->list_events(pending);
+	if (!listing)
+	{
+		std::println(stderr, "{}", listing.error());
+		return EXIT_FAILURE;
+	}
+
+	std::print("{}", EventsTableFormatter(*listing, pending).format());
+	return EXIT_SUCCESS;
 }
 
 int CommandRunner::fail(const std::string& message)

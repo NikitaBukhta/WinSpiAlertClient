@@ -1,6 +1,11 @@
 #include "StringUtils.h"
 
+#include <array>
+#include <format>
+
 #include <windows.h>
+
+#define BYTES_IN_KILOBYTE 1024
 
 namespace utils
 {
@@ -20,6 +25,22 @@ std::string StringUtils::to_utf8(const std::wstring_view wide)
 	std::string utf8(static_cast<size_t>(size), '\0');
 	WideCharToMultiByte(CP_UTF8, 0, wide.data(), wide_size, utf8.data(), size, nullptr, nullptr);
 	return utf8;
+}
+
+std::string StringUtils::format_byte_size(const uint64_t size)
+{
+	static constexpr auto UNITS = std::to_array<std::string_view>({"B", "KB", "MB", "GB"});
+	if (size < BYTES_IN_KILOBYTE)
+		return std::format("{} {}", size, UNITS.front());
+
+	auto value = static_cast<double>(size);
+	size_t unit = 0;
+	while (value >= BYTES_IN_KILOBYTE && unit + 1 < UNITS.size())
+	{
+		value /= BYTES_IN_KILOBYTE;
+		++unit;
+	}
+	return std::format("{:.1f} {}", value, UNITS[unit]);
 }
 
 } // namespace utils

@@ -8,9 +8,9 @@ using api::dto::ServerErrorDto;
 TEST(ApiErrorTests, ServerErrorShowsStatusCodeAndMessage)
 {
 	const ApiError error =
-		ApiError::server(401, "Unauthorized", ServerErrorDto{"invalid_api_key", "API key is invalid", {}});
+		ApiError::server(401, "Unauthorized", ServerErrorDto{"invalid_api_key", "API key is not valid.", {}});
 
-	EXPECT_EQ(error.describe(), "401 invalid_api_key: API key is invalid");
+	EXPECT_EQ(error.describe(), "401 invalid_api_key: API key is not valid.");
 }
 
 TEST(ApiErrorTests, ValidationErrorShowsDetailsInsteadOfSummary)

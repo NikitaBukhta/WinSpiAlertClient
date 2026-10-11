@@ -2,6 +2,8 @@
 
 #include <chrono>
 #include <format>
+#include <ranges>
+#include <unordered_set>
 
 #include "api/dto/EventObjectDto.h"
 #include "api/dto/EventRequestDto.h"
@@ -24,6 +26,11 @@
 #define MAX_RETRY_AFTER std::chrono::seconds{60}
 #define COMPRESSION_HEADROOM (20 * 1024 * 1024)
 #define MAX_IMAGE_READ_SIZE (MAX_IMAGE_SIZE + COMPRESSION_HEADROOM)
+// NOTE: the largest limit the server accepts for GET /events
+#define EVENTS_PAGE_SIZE 100
+// NOTE: every page counts against the limit of 60 requests per minute
+// TODO: move to secret/config.json, pass to SpialertService
+#define MAX_LIST_PAGES 20
 #define HTTP_CONFLICT 409
 #define HTTP_TOO_MANY_REQUESTS 429
 
@@ -59,6 +66,30 @@ std::expected<void, std::string> SpialertService::send_img(const std::filesystem
 		return std::unexpected(event.error());
 
 	return upload_image(*image, event->event_id);
+}
+
+std::expected<SpialertService::EventsListing, std::string> SpialertService::list_events(const bool pending) const
+{
+	const std::optional<bool> image_uploaded = pending ? std::optional(false) : std::nullopt;
+	EventsListing listing;
+	bool has_more_pages = true;
+	for (int page = 0; has_more_pages && page < MAX_LIST_PAGES; ++page)
+	{
+		const int offset = static_cast<int>(listing.items.size());
+		auto events = request_events_page(offset, image_uploaded);
+		if (!events)
+			return std::unexpected(events.error());
+
+		const int received_count = offset + static_cast<int>(events->items.size());
+		// NOTE: an empty page ends the listing too, so a wrong total does not burn requests up to MAX_LIST_PAGES
+		has_more_pages = !events->items.empty() && received_count < events->total;
+		listing.total = events->total;
+		listing.items.append_range(events->items | std::views::as_rvalue);
+	}
+
+	listing.items = drop_repeated_events(std::move(listing.items));
+	listing.truncated = has_more_pages;
+	return listing;
 }
 
 std::expected<model::Image, std::string> SpialertService::load_image(const std::filesystem::path& image_path) const
@@ -139,6 +170,32 @@ std::expected<void, std::string> SpialertService::upload_image(const model::Imag
 			std::format("Server accepted the image for event {}, but did not mark it as uploaded", event_id));
 
 	return {};
+}
+
+std::expected<api::dto::EventsListDto, std::string> SpialertService::request_events_page(
+	const int offset, const std::optional<bool> image_uploaded) const
+{
+	auto received =
+		send_with_retry([&] { return _spialert_api->get_events(EVENTS_PAGE_SIZE, offset, image_uploaded); });
+	if (!received.response.is_success())
+		return std::unexpected(
+			std::format("Events were not listed: page at offset {}: {}", offset, describe(received)));
+
+	return std::move(received.response.dto);
+}
+
+// NOTE: a new event shifts older ones down, so a page may start with an event from the previous one
+std::vector<api::dto::EventObjectDto> SpialertService::drop_repeated_events(
+	std::vector<api::dto::EventObjectDto> events)
+{
+	std::unordered_set<int> listed_ids;
+	std::vector<api::dto::EventObjectDto> unique_events;
+	for (auto& event : events)
+	{
+		if (listed_ids.insert(event.event_id).second)
+			unique_events.push_back(std::move(event));
+	}
+	return unique_events;
 }
 
 template <typename RequestType>

@@ -1,5 +1,6 @@
 #include <gtest/gtest.h>
 
+#include <chrono>
 #include <format>
 #include <memory>
 #include <string>
@@ -7,12 +8,16 @@
 
 #include "MockServerEnvironment.h"
 #include "api/SpialertApi.h"
+#include "api/dto/EventObjectDto.h"
+#include "api/dto/EventRequestDto.h"
 #include "api/dto/EventsListDto.h"
+#include "model/Image.h"
 #include "net/WinHttpClient.h"
 #include "tests/helpers/ClientProcess.h"
 #include "tests/helpers/TempFile.h"
 #include "utils/FileUtils.h"
 #include "utils/StringUtils.h"
+#include "utils/UuidGenerator.h"
 
 #define PNG_IMAGE "\x89PNG\r\n\x1a\nimage-bytes"
 #define SECRET_KEY "secret-key-1"
@@ -55,12 +60,34 @@ protected:
 		return std::format(R"({{"base_url": "{}", "api_key": "{}"}})", base_url, api_key);
 	}
 
-	static api::dto::EventsListDto list_events()
+	static api::SpialertApi mock_api()
 	{
 		auto http_client =
 			std::make_unique<net::WinHttpClient>(MOCK_HOST, TEST_USER_AGENT, MockServerEnvironment::port());
-		api::SpialertApi api(std::move(http_client), MOCK_API_BASE_PATH, MOCK_API_KEY);
-		return api.get_events(EVENTS_LIMIT, 0, std::nullopt).dto;
+		return {std::move(http_client), MOCK_API_BASE_PATH, MOCK_API_KEY};
+	}
+
+	static api::dto::EventsListDto list_events()
+	{
+		return mock_api().get_events(EVENTS_LIMIT, 0, std::nullopt).dto;
+	}
+
+	// NOTE: client.exe send always uploads the image, so an event without one is created through the API
+	static void create_event(const std::string& file_name, bool with_image)
+	{
+		api::SpialertApi api = mock_api();
+		api::dto::EventRequestDto request;
+		request.event_uid = utils::UuidGenerator::generate();
+		request.event_code = 1;
+		request.file_name = file_name;
+		request.timestamp = std::chrono::system_clock::now();
+		const auto created = api.post_events(request);
+		ASSERT_TRUE(created.is_success()) << created.status_code;
+		if (!with_image)
+			return;
+
+		const auto uploaded = api.post_image(model::Image(file_name, PNG_IMAGE), created.dto.event_id);
+		ASSERT_TRUE(uploaded.is_success()) << uploaded.status_code;
 	}
 
 	test_helpers::ClientProcess _client_process;
@@ -110,7 +137,7 @@ TEST_F(ClientCliIntegrationTests, KeyFlagReplacesConfigFileValue)
 
 	EXPECT_EQ(output.exit_code, 1u);
 	EXPECT_TRUE(output.out.empty()) << output.out;
-	EXPECT_EQ(output.err, "Server status is unknown: 401 invalid_api_key: API key is invalid\n");
+	EXPECT_EQ(output.err, "Server status is unknown: 401 invalid_api_key: API key is not valid.\n");
 }
 
 TEST_F(ClientCliIntegrationTests, MissingDefaultConfigFails)
@@ -245,6 +272,57 @@ TEST_F(ClientCliIntegrationTests, StatusShowsHtmlErrorPageAsStatusCode)
 	EXPECT_EQ(output.err, "Server status is unknown: 502 Bad Gateway (response is not a JSON error)\n");
 }
 
+TEST_F(ClientCliIntegrationTests, ListShowsEveryEventAndMarksThoseWithoutImage)
+{
+	create_event("capture_0001.png", true);
+	create_event("capture_0002.png", false);
+	create_event("capture_0003.png", true);
+
+	const ClientOutput output = run_with_config({L"list"});
+
+	EXPECT_EQ(output.exit_code, 0u) << output.err;
+	EXPECT_TRUE(output.err.empty()) << output.err;
+	EXPECT_TRUE(output.out.contains("capture_0001.png")) << output.out;
+	EXPECT_TRUE(output.out.contains("capture_0002.png")) << output.out;
+	EXPECT_TRUE(output.out.contains("capture_0003.png")) << output.out;
+	EXPECT_TRUE(output.out.ends_with("\nTotal: 3, without image: 1\n")) << output.out;
+}
+
+TEST_F(ClientCliIntegrationTests, ListPendingShowsOnlyEventsWithoutImage)
+{
+	create_event("capture_0001.png", true);
+	create_event("capture_0002.png", false);
+	create_event("capture_0003.png", true);
+
+	const ClientOutput output = run_with_config({L"list", L"--pending"});
+
+	EXPECT_EQ(output.exit_code, 0u) << output.err;
+	EXPECT_TRUE(output.out.contains("capture_0002.png")) << output.out;
+	EXPECT_FALSE(output.out.contains("capture_0001.png")) << output.out;
+	EXPECT_FALSE(output.out.contains("capture_0003.png")) << output.out;
+	EXPECT_TRUE(output.out.ends_with("\nWithout image: 1\n")) << output.out;
+}
+
+TEST_F(ClientCliIntegrationTests, ListOnEmptyServerSaysThereAreNoEvents)
+{
+	const ClientOutput output = run_with_config({L"list"});
+
+	EXPECT_EQ(output.exit_code, 0u) << output.err;
+	EXPECT_EQ(output.out, "No events\n");
+}
+
+TEST_F(ClientCliIntegrationTests, ListShowsServerError)
+{
+	add_fault(R"({"fault":"status","status":500,"code":"internal_error","message":"Database is unavailable",)"
+	          R"("method":"GET","path":"/api/v1/events"})");
+
+	const ClientOutput output = run_with_config({L"list"});
+
+	EXPECT_EQ(output.exit_code, 1u);
+	EXPECT_TRUE(output.out.empty()) << output.out;
+	EXPECT_EQ(output.err, "Events were not listed: page at offset 0: 500 internal_error: Database is unavailable\n");
+}
+
 TEST_F(ClientCliIntegrationTests, UnknownCommandFailsWithHint)
 {
 	const ClientOutput output = run({L"upload"});
@@ -260,6 +338,7 @@ TEST_F(ClientCliIntegrationTests, KeyNeverAppearsInOutput)
 		run_with_config({L"status"}),
 		run_with_config({L"send", L"Z:\\no\\such\\capture.png"}),
 		run_with_config({L"status", L"--key", L"" SECRET_KEY}),
+		run_with_config({L"list"}),
 		run({L"status", L"--config", http_config.path().wstring()}),
 	};
 

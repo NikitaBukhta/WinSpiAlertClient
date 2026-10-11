@@ -44,3 +44,23 @@ TEST(StringUtilsTests, ConvertsEmptyWideString)
 {
 	EXPECT_EQ(StringUtils::to_utf8(L""), "");
 }
+
+TEST(StringUtilsTests, FormatsSizeBelowKilobyteInBytes)
+{
+	EXPECT_EQ(StringUtils::format_byte_size(0), "0 B");
+	EXPECT_EQ(StringUtils::format_byte_size(1023), "1023 B");
+}
+
+TEST(StringUtilsTests, FormatsSizeWithBase1024)
+{
+	EXPECT_EQ(StringUtils::format_byte_size(1024), "1.0 KB");
+	EXPECT_EQ(StringUtils::format_byte_size(1536), "1.5 KB");
+	EXPECT_EQ(StringUtils::format_byte_size(1258291), "1.2 MB");
+	EXPECT_EQ(StringUtils::format_byte_size(5ull * 1024 * 1024 * 1024), "5.0 GB");
+	EXPECT_EQ(StringUtils::format_byte_size(2048ull * 1024 * 1024 * 1024), "2048.0 GB");
+}
+
+TEST(StringUtilsTests, FormatsImageSizeLimitAsWholeMegabytes)
+{
+	EXPECT_EQ(StringUtils::format_byte_size(5 * 1024 * 1024), "5.0 MB");
+}
