@@ -1,9 +1,11 @@
+#include <filesystem>
 #include <memory>
 #include <print>
 
 #include "api/SpialertApi.h"
-#include "api/dto/StatusDto.h"
+#include "app/SpialertService.h"
 #include "net/WinHttpClient.h"
+#include "utils/FileUtils.h"
 
 // TODO: read from secret/config.json. Local mock server: scripts/mock_server.py
 #define SERVER_HOST "127.0.0.1"
@@ -12,26 +14,34 @@
 #define API_KEY "test-key"
 #define USER_AGENT "WinSpiAlertClient/1.0"
 
-int main()
+#define IMAGE_PATH_ARG 1
+
+int wmain(int argc, wchar_t** argv)
 {
 	auto http_client = std::make_unique<net::WinHttpClient>(SERVER_HOST, USER_AGENT, SERVER_PORT);
-	if (!http_client->open())
+	app::SpialertService spialert_service(
+		std::make_unique<api::SpialertApi>(std::move(http_client), API_BASE_PATH, API_KEY));
+
+	const bool online = spialert_service.is_online();
+	std::println("Server is {}", online ? "online" : "not online");
+
+	const bool image_given = argc > IMAGE_PATH_ARG;
+	if (!image_given)
 	{
-		std::println("Failed to initialize the HTTP client");
+		std::println("Usage: client.exe <image.png|image.jpg>");
+		return online ? 0 : 1;
+	}
+
+	if (!online)
+		return 1;
+
+	const std::filesystem::path image_path = argv[IMAGE_PATH_ARG];
+	if (!spialert_service.send_img(image_path))
+	{
+		std::println("Failed to send {}", utils::FileUtils::to_utf8(image_path));
 		return 1;
 	}
 
-	api::SpialertApi spialert_api(std::move(http_client), API_BASE_PATH, API_KEY);
-
-	const auto response = spialert_api.get_status();
-	if (!response.is_success())
-	{
-		std::println("Status request failed (HTTP {})", response.status_code);
-		return 1;
-	}
-
-	std::println("Server is {}", response.dto.status ? "online" : "not online");
-	std::println("API version: {}", response.dto.api_version);
-	std::println("Candidate: {}", response.dto.candidate);
+	std::println("Sent {}", utils::FileUtils::to_utf8(image_path));
 	return 0;
 }
